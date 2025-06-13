@@ -1,3 +1,4 @@
 instagrapi
 Flask
 Pillow
+requests
