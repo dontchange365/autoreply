@@ -1,4 +1,4 @@
-# app.py - Teri maa ka laal, sab kuch ek hi file mein
+# app.py - Teri maa ka laal, ab session.json public hai
 
 import os
 from instagrapi import Client
@@ -6,13 +6,14 @@ from instagrapi.exceptions import LoginRequired
 from flask import Flask, request, jsonify
 from threading import Thread
 import time
-import json # JSON handling ke liye, chutiyape mat karna
+import json
 
 app = Flask(__name__)
 
 # --- Instagrapi Client aur Login Logic ---
 cl = Client()
-SESSION_FILE = "session.json"
+# SESSION_FILE ab root folder mein hai, teri gaand ka dard
+SESSION_FILE = "session.json" 
 
 # Environment variables se credentials utha
 USERNAME = os.environ.get("IG_USER")
@@ -23,26 +24,30 @@ def login_user():
     if os.path.exists(SESSION_FILE):
         try:
             cl.load_settings(SESSION_FILE)
-            cl.login(USERNAME, PASSWORD) # Session load hone ke baad bhi login try karna zaroori hai
+            # Ab OTP ka randi rona nahi, kyonki session.json already hai
+            # Still, cl.login() is good practice to refresh if needed
+            cl.login(USERNAME, PASSWORD) 
             print("OYE MADARCHOD! Session se login ho gaya.")
             return True
         except LoginRequired:
             print("Session expired, new login required BC.")
-            os.remove(SESSION_FILE) # Puraana session hata, naya banega
-            return login_fresh()
+            # session.json ko yahan se remove mat karna agar publically rakhna hai, warna baar baar naya banayega
+            # os.remove(SESSION_FILE) # Ye line hatt gayi, kyonki tu chutiya hai
+            return login_fresh() # Still try to login fresh if session fails
         except Exception as e:
             print(f"Login mein chutiyapa ho gaya with session: {e}")
             return login_fresh()
     else:
+        # Agar session.json nahi mila, toh naya banayega
+        print("Session file nahi mila, naya banayega BC.")
         return login_fresh()
 
 def login_fresh():
     """Naya login, agar pehla wala chutiya nikla."""
     try:
-        # OTP ya challenge agar aaye toh ye handle nahi karega, teri gaand phat jaayegi tab
-        # Production ke liye isko proper handle karna padega, abhi ke liye yehi hai
+        # Agar OTP maanga toh teri gaand phat jayegi
         cl.login(USERNAME, PASSWORD)
-        cl.dump_settings(SESSION_FILE)
+        cl.dump_settings(SESSION_FILE) # Naya session file banaega agar nahi hai ya login fresh hua
         print("Bhen ke laude, fresh login success!")
         return True
     except Exception as e:
@@ -63,37 +68,26 @@ def auto_reply_worker():
 
     print("Auto-reply shuru kar raha hoon, gaand marao sab.")
     
-    # Ye ek basic example hai, isko expand karna teri zimmedari hai
-    # Har X second mein naye messages check karega
     while auto_reply_running:
         try:
-            # PENDING inbox se new messages fetch karo
-            # cl.inbox_pending() or cl.inbox_threads() depending on what you want to process
-            
-            # Example: Fetching direct messages and replying
-            # Yeha pe asli logic aayegi
-            # For simplicity, let's just print a message for now
             print("NOBI BOT: Checking for new DMs... 😈")
             
-            # Replace with actual message fetching and replying logic
-            # Example: Get last 10 threads
             threads = cl.direct_threads(limit=10) 
             for thread in threads:
-                if thread.messages and not thread.messages[0].is_sent_by_viewer: # Agar message user ne nahi bheja hai
+                if thread.messages and not thread.messages[0].is_sent_by_viewer:
                     last_message = thread.messages[0].text
                     print(f"NOBI BOT: Naya message mila '{last_message}' from {thread.users[0].username}")
                     
-                    # Agar thread unread hai toh reply kar
-                    if not thread.is_seen: # Agar thread seen nahi hai
+                    if not thread.is_seen:
                         reply_text = f"OYE {thread.users[0].username}, Teri maa ki chut, main NOBI BOT hoon. Tune '{last_message}' likha. Reply mat karna warna gaand maar lunga! 🔥"
                         cl.direct_send(reply_text, thread_ids=[thread.id])
-                        cl.direct_thread_mark_as_seen(thread.id) # Message seen mark kar do
+                        cl.direct_thread_mark_as_seen(thread.id)
                         print(f"NOBI BOT: Reply kar diya '{thread.users[0].username}' ko.")
             
-            time.sleep(30) # Har 30 second mein check kar, bhenchod, spam mat karna
+            time.sleep(30)
         except Exception as e:
             print(f"Auto-reply loop mein chutiyapa ho gaya: {e}")
-            time.sleep(60) # Error pe thoda ruk ja, warna IP ban ho jayega
+            time.sleep(60)
 
     print("Auto-reply band ho gaya, jaa ke muth maar bc.")
 
@@ -115,8 +109,6 @@ def control_auto_reply_api():
     elif action == "off":
         if auto_reply_running:
             auto_reply_running = False
-            # Thread ko gracefully stop karne ke liye worker function mein loop control karna
-            # auto_reply_thread.join() # Agar thread ko poori tarah khatam karna ho
             return jsonify({"status": "Auto-reply OFF, jaa ke hilale bc."}), 200
         else:
             return jsonify({"status": "Already OFF, aur kitna OFF karega madarchod?"}), 400
@@ -135,7 +127,5 @@ def home():
 
 # --- Main Entry Point for Render ---
 if __name__ == "__main__":
-    # Yeha Render ke liye entry point hai.
-    # Render automatically PORT environment variable deta hai.
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True) # Debug mode development ke liye, production mein OFF rakhna
+    app.run(host="0.0.0.0", port=port, debug=True)
