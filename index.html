@@ -142,39 +142,7 @@
             font-weight: bold;
             margin-bottom: 20px;
         }
-        /* --- Spinner CSS (Loading Animation Ka Chutiyapa) --- */
-        .loading-spinner {
-            border: 4px solid #f3f3f3; /* Light grey */
-            border-top: 4px solid #ff4500; /* Orange */
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            animation: spin 1s linear infinite;
-            margin: 20px auto; /* Center it */
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.7); /* Dark semi-transparent background */
-            display: flex;
-            flex-direction: column; /* Changed to column to stack spinner and text */
-            justify-content: center;
-            align-items: center;
-            z-index: 1000; /* Spinner will be on top */
-        }
-        .overlay p {
-            color: white;
-            margin-top: 15px; /* Added margin-top */
-            font-size: 1.2em;
-        }
+        /* --- Removed Spinner CSS and Overlay CSS --- */
     </style>
 </head>
 <body>
@@ -280,11 +248,6 @@
         <button onclick="fetchLogs()">Refresh Logs</button>
     </div>
 
-    <div id="loading-overlay" class="overlay hidden">
-        <div class="loading-spinner"></div>
-        <p id="loading-text">Loading kar raha hoon, ruk ja madarchod...</p>
-    </div>
-
 
     <script>
         /* JavaScript ka chutiyapa yahin pel */
@@ -293,19 +256,11 @@
         // Global variable to track login state and username
         let currentLoggedInUser = null;
 
-        // --- Spinner Control Functions ---
-        function showLoading(message = "Loading kar raha hoon, ruk ja madarchod...") {
-            document.getElementById('loading-text').textContent = message;
-            document.getElementById('loading-overlay').classList.remove('hidden');
-        }
-
-        function hideLoading() {
-            document.getElementById('loading-overlay').classList.add('hidden');
-        }
-
+        // --- Removed Spinner Control Functions ---
+        // showLoading() and hideLoading() functions are removed as per user request.
 
         async function postData(url, data) {
-            showLoading("Backend ko request bhej raha hoon...");
+            // showLoading("Backend ko request bhej raha hoon..."); // Removed call
             try {
                 const response = await fetch(url, {
                     method: 'POST',
@@ -323,12 +278,12 @@
                 console.error('Network or Backend Error:', error);
                 return { status: 'error', message: `MADARCHOD! Backend Error: ${error.message}` };
             } finally {
-                hideLoading();
+                // hideLoading(); // Removed call
             }
         }
 
         async function fetchData(url) {
-            showLoading("Data fetch kar raha hoon...");
+            // showLoading("Data fetch kar raha hoon..."); // Removed call
             try {
                 const response = await fetch(url);
                 if (!response.ok) {
@@ -340,7 +295,7 @@
                 console.error('Network or Backend Error:', error);
                 return { status: 'error', message: `MADARCHOD! Backend Error: ${error.message}` };
             } finally {
-                hideLoading();
+                // hideLoading(); // Removed call
             }
         }
 
@@ -348,8 +303,7 @@
             const element = document.getElementById(elementId);
             element.textContent = message;
             element.className = `message ${type}`;
-            // Spinner ko hide kar jab koi message dikhe
-            hideLoading(); 
+            // hideLoading(); // Removed, as showLoading is also removed.
             setTimeout(() => {
                 element.textContent = '';
                 element.className = 'message';
@@ -712,12 +666,13 @@
             toggleSpamTarget();
             fetchGroups();
             fetchLogs();
-            setInterval(fetchLogs, 15000);
+            // setInterval(fetchLogs, 15000); // Removed continuous log fetching
             document.getElementById('challenge-section').classList.add('hidden');
 
             document.getElementById('username').value = 'noncence._';
             document.getElementById('password').value = 'shammu@love3';
             
+            // Initial check for login status on page load
             checkLoginStatus(); 
         });
     </script>
