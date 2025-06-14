@@ -39,10 +39,6 @@ except Exception as e:
     logger.error(f"MADARCHOD! MongoDB connection failed: {e}")
     exit(1)
 
-# --- Instagram Bot Global Variables (Session Management Database se) ---
-INSTA_USERNAME_GLOBAL = os.getenv("INSTA_USERNAME") 
-INSTA_PASSWORD_GLOBAL = os.getenv("INSTA_PASSWORD")
-
 # --- Helper Functions ---
 def add_random_chutiyapa(text):
     """Text mein random emoji/char pelenge."""
@@ -95,23 +91,38 @@ def instagram_login_playwright(username, password, playwright_instance: Playwrig
         page.fill("input[name='password']", password)
         page.click("button[type='submit']")
         
-        page.wait_for_timeout(random.uniform(3000, 7000))
+        page.wait_for_timeout(random.uniform(5000, 10000)) # Increased wait after submit
 
+        # --- ASLI LOGIN CONFIRMATION CHUTIYAPA ---
+        # Option 1: URL check kar agar login/challenge page pe hi stuck hai
         if "login_challenge" in page.url or "checkpoint" in page.url or "oauth" in page.url:
             logger.warning(f"CHALLENGE: Login Challenge detected ({page.url}).")
             log_challenge("Login Challenge", f"OTP/CAPTCHA/Security check needed. URL: {page.url}")
             return False, "challenge", None
-
-        if "Incorrect username or password" in page.content() or page.locator("div[aria-label*='Incorrect']").count() > 0:
-            logger.error("Login Failed: Incorrect credentials.")
-            log_challenge("Login Failed", "Incorrect username or password.")
-            return False, "fail", None
-            
-        logger.info(f"Successfully logged in as {username}, bhen ke laude!")
-        cookies = context.cookies()
         
-        return True, "success", cookies
+        if "instagram.com/accounts/login" in page.url: # Still on login page
+            # Check for incorrect credentials, otherwise it's just stuck
+            if "Incorrect username or password" in page.content() or page.locator("div[aria-label*='Incorrect']").count() > 0:
+                logger.error("Login Failed: Incorrect credentials.")
+                log_challenge("Login Failed", "Incorrect username or password.")
+                return False, "fail", None
+            else:
+                logger.error("Login Failed: Still on login page, possibly stuck or blocked silently.")
+                log_challenge("Login Stuck", "Still on login page after submission, no clear error.")
+                return False, "stuck_on_login", None
 
+        # Option 2: Home feed ke common element ko dhundh
+        try:
+            home_feed_element = page.locator("svg[aria-label='Home']").first # Home icon
+            home_feed_element.wait_for(state='visible', timeout=15000) # 15 sec tak wait kar for home element
+            logger.info(f"Successfully logged in as {username}, bhen ke laude! Home feed element found.")
+            cookies = context.cookies()
+            return True, "success", cookies
+        except PlaywrightTimeoutError:
+            logger.error("Login Failed: Home feed element not found after login. Possibly blocked or stuck silently.")
+            log_challenge("Login Blocked", "Home feed element not visible after login. Account flagged?")
+            return False, "blocked_after_login", None
+            
     except PlaywrightTimeoutError:
         logger.error("MADARCHOD! Playwright timeout during login. Page elements not found or loaded in time.")
         log_challenge("Login Timeout", "Playwright elements not found or loaded.")
@@ -134,7 +145,7 @@ def dismiss_popups_playwright(page):
         page.locator("button:has-text('Allow all cookies')").click(timeout=5000)
         logger.info("Cookies consent dismissed.")
     except PlaywrightTimeoutError:
-        pass # No cookie popup
+        pass
     except Exception as e:
         logger.warning(f"Failed to dismiss cookie popup: {e}")
 
@@ -142,16 +153,15 @@ def dismiss_popups_playwright(page):
         page.locator("button:has-text('Not Now')").click(timeout=5000)
         logger.info("'Not Now' for notifications dismissed.")
     except PlaywrightTimeoutError:
-        pass # No notification popup
+        pass
     except Exception as e:
         logger.warning(f"Failed to dismiss notification popup: {e}")
 
     try:
-        # Generic dismiss/OK/I Understand/Close button for other popups (including automation detection)
         page.locator("button:has-text('Dismiss'), button:has-text('OK'), button:has-text('I Understand'), [aria-label='Close'], svg[aria-label='Close']").click(timeout=5000)
         logger.info("Automation/general dismissible popup dismissed.")
     except PlaywrightTimeoutError:
-        pass # No general dismiss popup
+        pass
     except Exception as e:
         logger.warning(f"Failed to dismiss general popup: {e}")
 
@@ -180,7 +190,6 @@ def perform_human_behavior_playwright(page, min_delay_seconds):
         page.goto("https://www.instagram.com/explore/people/suggested/")
         page.wait_for_timeout(random.uniform(5000, 10000))
         
-        # Suggested profiles ke links dhundo (example, may need adjustment)
         profile_links = page.locator("a[href*='/p/'][tabindex='0']").all() # Post links
         if profile_links:
             random_profile_link = random.choice(profile_links)
@@ -204,7 +213,7 @@ def send_dm_to_group_playwright(group_id, message, playwright_instance: Playwrig
     try:
         browser = playwright_instance.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
         context = browser.new_context()
-        context.add_cookies(cookies) # Saved cookies load kar
+        context.add_cookies(cookies)
         page = context.new_page()
 
         page.goto(f"https://www.instagram.com/direct/t/{group_id}/")
@@ -215,7 +224,7 @@ def send_dm_to_group_playwright(group_id, message, playwright_instance: Playwrig
         page.wait_for_timeout(random.uniform(1000, 3000)) # Typing delay
 
         message_box = page.locator("textarea[placeholder='Message...']")
-        if not message_box.is_visible():
+        if not message_box.is_visible(timeout=15000): # Increased timeout
             logger.error(f"MADARCHOD! Message box not found for group {group_id}. Maybe access denied/removed from group.")
             log_challenge("GC Access Denied", f"Message box not found for group {group_id}.")
             return False
@@ -256,38 +265,37 @@ def send_dm_to_user_playwright(username, message, playwright_instance: Playwrigh
         page.wait_for_timeout(random.uniform(3000, 6000))
         dismiss_popups_playwright(page)
 
-        # Click New Message button
         new_message_button = page.locator("svg[aria-label='New message']")
-        new_message_button.click(timeout=10000)
+        new_message_button.click(timeout=15000) # Increased timeout
         page.wait_for_timeout(random.uniform(2000, 4000))
 
-        # Search for user
         search_input = page.locator("input[placeholder='Search']")
         search_input.fill(username)
-        page.wait_for_timeout(random.uniform(2000, 4000)) # Wait for results to appear
+        page.wait_for_timeout(random.uniform(3000, 5000)) # Wait for results to appear
 
-        # Select the first result (assuming it's the correct user)
-        # This locator might need adjustment if Instagram UI changes
-        first_user_result = page.locator(f"div[role='button'] >> text='{username}'").first
-        if not first_user_result.is_visible():
+        # Updated locator for user search result (more robust)
+        # Tries to find a div with role button and role link, or a general role button
+        user_result_selector = f"div[role='button'][role='link'][href*='/{username}/'], div[role='button']:has-text('{username}')"
+        first_user_result = page.locator(user_result_selector).first
+
+        if not first_user_result.is_visible(timeout=15000): # Increased timeout for visibility
              # Fallback: select generic user result if exact username text isn't found
+             # This might click on a wrong user if search results are not precise
              first_user_result = page.locator("div[role='button'][aria-selected='false']").first
-             if not first_user_result.is_visible():
+             if not first_user_result.is_visible(timeout=15000):
                 logger.error(f"MADARCHOD! User '{username}' not found in search results or unselectable.")
                 log_challenge("DM User Failed", f"User '{username}' not found/selectable.")
                 return False
 
-        first_user_result.click()
+        first_user_result.click(timeout=10000) # Increased timeout for click
         page.wait_for_timeout(random.uniform(1000, 2000))
 
-        # Click 'Chat' or 'Next' button to open chat
         chat_button = page.locator("button:has-text('Chat'), button:has-text('Next')")
-        chat_button.click(timeout=10000)
+        chat_button.click(timeout=15000) # Increased timeout
         page.wait_for_timeout(random.uniform(2000, 4000))
 
-        # Message box and send
         message_box = page.locator("textarea[placeholder='Message...']")
-        if not message_box.is_visible():
+        if not message_box.is_visible(timeout=15000): # Increased timeout for message box
             logger.error(f"MADARCHOD! Message box not found for user {username}. Maybe chat didn't open.")
             log_challenge("DM User Failed", f"Message box not found for user {username}.")
             return False
@@ -328,7 +336,7 @@ def change_group_name_playwright(group_id, new_name, playwright_instance: Playwr
         dismiss_popups_playwright(page)
 
         info_button = page.locator("a[href*='/direct/t/'][href*='/info/']")
-        if not info_button.is_visible():
+        if not info_button.is_visible(timeout=15000): # Increased timeout
             logger.error(f"MADARCHOD! Group info button not found for group {group_id}. Maybe access denied.")
             log_challenge("GC Name Change Error", f"Group info button not found for group {group_id}.")
             return False
@@ -337,7 +345,7 @@ def change_group_name_playwright(group_id, new_name, playwright_instance: Playwr
         page.wait_for_timeout(random.uniform(3000, 5000))
 
         edit_name_field = page.locator("input[placeholder='Group name']")
-        if not edit_name_field.is_visible():
+        if not edit_name_field.is_visible(timeout=15000): # Increased timeout
             logger.error(f"MADARCHOD! Group name edit field not found for group {group_id}.")
             log_challenge("GC Name Change Error", f"Group name edit field not found for group {group_id}.")
             return False
@@ -371,16 +379,14 @@ def submit_challenge_response_playwright(response_code, playwright_instance: Pla
     try:
         browser = playwright_instance.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
         context = browser.new_context()
-        context.add_cookies(cookies) # Previous cookies load kar
+        context.add_cookies(cookies)
         page = context.new_page()
 
-        # Navigate back to challenge URL if needed or ensure current page is challenge
-        # For a robust solution, you might want to store the challenge URL
-        # For now, assume it's the current page or a redirect to challenge
-        page.wait_for_timeout(random.uniform(2000, 4000)) # Small wait
+        page.goto("https://www.instagram.com/challenge/") # Navigate back to challenge URL if needed
+        page.wait_for_timeout(random.uniform(2000, 4000))
 
         input_field = page.locator("input[aria-label='security code'], input[name='security_code'], input[placeholder='Security Code'], input[aria-label='Confirmation Code'], input[name='verificationCode'], input[type='text']")
-        if not input_field.is_visible():
+        if not input_field.is_visible(timeout=15000): # Increased timeout
             logger.error("MADARCHOD! Challenge input field not found on page.")
             log_challenge("Challenge Submit Error", "Input field for challenge not found.")
             return False, None
@@ -390,9 +396,8 @@ def submit_challenge_response_playwright(response_code, playwright_instance: Pla
         submit_button = page.locator("button:has-text('Confirm'), button[type='submit'], button:has-text('Submit'), button:has-text('Verify')")
         submit_button.click()
         
-        page.wait_for_timeout(random.uniform(5000, 10000)) # Wait for result
+        page.wait_for_timeout(random.uniform(5000, 10000))
 
-        # Check if challenge page is still present after submission
         if "login_challenge" in page.url or "checkpoint" in page.url or "oauth" in page.url:
             logger.warning("Challenge solution failed or new challenge arrived.")
             log_challenge("Challenge Solution Failed", "Submitted code didn't resolve challenge.")
@@ -426,6 +431,25 @@ def home():
     """Frontend HTML file serve karega."""
     with open("index.html", "r") as f:
         return f.read()
+
+@app.route("/check_login_status", methods=["GET"])
+def check_login_status_route():
+    """Check karega kaun sa user logged in hai DB mein."""
+    try:
+        # Check if there's any session data stored for the default username
+        # Assuming only one user will be logged in at a time for this simple setup
+        session_data = insta_sessions_collection.find_one({})
+        
+        if session_data and "cookies" in session_data and "username" in session_data and session_data["cookies"]:
+            logger.info(f"Login status checked: User '{session_data['username']}' found in session DB.")
+            return jsonify({"status": "logged_in", "username": session_data["username"]})
+        else:
+            logger.info("Login status checked: No active session found in DB.")
+            return jsonify({"status": "logged_out", "message": "Koi active session nahi."})
+    except Exception as e:
+        logger.error(f"MADARCHOD! Failed to check login status: {e}")
+        return jsonify({"status": "error", "message": f"Login status check mein chutiyapa: {e}"}), 500
+
 
 @app.route("/login", methods=["POST"])
 def login_route():
@@ -463,8 +487,25 @@ def login_route():
                 return jsonify({"status": "error", "message": "Login timeout: Instagram took too long to respond."}), 500
             elif msg == "playwright_error":
                 return jsonify({"status": "error", "message": "Login Playwright error. Check backend logs."}), 500
+            elif msg == "stuck_on_login":
+                return jsonify({"status": "error", "message": "Login stuck: Still on login/challenge page. Try again or check logs."}), 500
+            elif msg == "blocked_after_login":
+                return jsonify({"status": "error", "message": "Login blocked: Home page not reached. Account flagged?"}), 500
             else:
-                return jsonify({"status": "error", "message": f"Login failed: {msg}"}), 500 # Default to 500 for other errors
+                return jsonify({"status": "error", "message": f"Login failed: {msg}"}), 500
+
+
+@app.route("/logout", methods=["GET"])
+def logout_route():
+    """Instagram session ko DB se hata dega."""
+    try:
+        insta_sessions_collection.delete_many({}) # Saare sessions delete kar de
+        logger.info("All Instagram sessions cleared from DB. Logged out.")
+        return jsonify({"status": "success", "message": "Logout successful. Session ki gaand maar di!"})
+    except Exception as e:
+        logger.error(f"MADARCHOD! Failed to logout/clear sessions: {e}")
+        return jsonify({"status": "error", "message": f"Logout mein chutiyapa: {e}"}), 500
+
 
 @app.route("/add_group", methods=["POST"])
 def add_group_route():
@@ -477,6 +518,7 @@ def add_group_route():
         return jsonify({"status": "error", "message": "MADARCHOD! Group ID ya Group Name missing hai!"}), 400
 
     try:
+        # Check if group already exists
         if groups_collection.find_one({"group_id": group_id}):
             return jsonify({"status": "warning", "message": "Chutiye, yeh group pehle se hai!"}), 200
 
@@ -506,18 +548,19 @@ def start_spam_campaign_route():
     num_messages = data.get("num_messages")
     min_delay = data.get("min_delay")
     max_delay = data.get("max_delay")
-    messages_str = data.get("messages") # Comma separated string
+    messages_str = data.get("messages")
+    username_from_frontend = data.get("username") # Logged in user ka username
 
-    if not all([group_id, num_messages, min_delay, max_delay, messages_str]):
+    if not all([group_id, num_messages, min_delay, max_delay, messages_str, username_from_frontend]):
         return jsonify({"status": "error", "message": "OYE BSDK! Saara data de, kuch missing hai!"}), 400
 
     messages_list = [msg.strip() for msg in messages_str.split(',') if msg.strip()]
     if not messages_list:
         return jsonify({"status": "error", "message": "MADARCHOD! Message list empty hai!"}), 400
 
-    session_data = insta_sessions_collection.find_one({"username": INSTA_USERNAME_GLOBAL})
+    session_data = insta_sessions_collection.find_one({"username": username_from_frontend})
     if not session_data or "cookies" not in session_data:
-        return jsonify({"status": "error", "message": "MADARCHOD! Instagram session data missing. Pehle login kar!"}), 401
+        return jsonify({"status": "error", "message": "MADARCHOD! Instagram session data missing for this user. Pehle login kar!"}), 401
     
     cookies = json.loads(session_data["cookies"])
     
@@ -535,7 +578,6 @@ def start_spam_campaign_route():
     campaigns_collection.insert_one(campaign_settings)
     logger.info(f"Campaign '{campaign_settings['campaign_name']}' started for group {group_id}")
 
-    # --- Asli Spamming Logic (Background mein chalega, simple for now) ---
     # NOTE: For production, use Celery/RQ for long-running tasks!
     
     message_counter = 0
@@ -552,7 +594,6 @@ def start_spam_campaign_route():
             message_counter += 1
             if min_delay <= 2 and message_counter % random.randint(20, 25) == 0:
                 with sync_playwright() as p:
-                    # Launch new browser for human behavior to not disturb main task
                     browser_for_human_behavior = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
                     context_for_human_behavior = browser_for_human_behavior.new_context()
                     context_for_human_behavior.add_cookies(cookies)
@@ -582,13 +623,14 @@ def start_spam_campaign_route():
 def start_dm_to_user_campaign_route():
     """DM spamming campaign shuru karega (users ke liye)."""
     data = request.json
-    usernames_str = data.get("usernames") # Comma separated usernames
+    usernames_str = data.get("usernames")
     num_messages = data.get("num_messages")
     min_delay = data.get("min_delay")
     max_delay = data.get("max_delay")
-    messages_str = data.get("messages") # Comma separated string
+    messages_str = data.get("messages")
+    username_from_frontend = data.get("username") # Logged in user ka username
 
-    if not all([usernames_str, num_messages, min_delay, max_delay, messages_str]):
+    if not all([usernames_str, num_messages, min_delay, max_delay, messages_str, username_from_frontend]):
         return jsonify({"status": "error", "message": "OYE BSDK! Saara data de, kuch missing hai!"}), 400
 
     usernames_list = [u.strip() for u in usernames_str.split(',') if u.strip()]
@@ -596,7 +638,7 @@ def start_dm_to_user_campaign_route():
     if not usernames_list or not messages_list:
         return jsonify({"status": "error", "message": "MADARCHOD! Username ya Message list empty hai!"}), 400
 
-    session_data = insta_sessions_collection.find_one({"username": INSTA_USERNAME_GLOBAL})
+    session_data = insta_sessions_collection.find_one({"username": username_from_frontend})
     if not session_data or "cookies" not in session_data:
         return jsonify({"status": "error", "message": "MADARCHOD! Instagram session data missing. Pehle login kar!"}), 401
     
@@ -605,7 +647,7 @@ def start_dm_to_user_campaign_route():
     campaign_settings = {
         "campaign_name": f"Spam_Users_{usernames_list[0]}_{time.time()}",
         "target_type": "user",
-        "target_usernames": usernames_list, # Store list of usernames
+        "target_usernames": usernames_list,
         "num_messages_to_send": num_messages,
         "min_delay_seconds": min_delay,
         "max_delay_seconds": max_delay,
@@ -617,7 +659,6 @@ def start_dm_to_user_campaign_route():
     logger.info(f"Campaign '{campaign_settings['campaign_name']}' started for users: {usernames_list}")
 
     message_counter = 0
-    # Loop through each user to send N messages
     for username_target in usernames_list:
         for i in range(num_messages):
             random_message = random.choice(messages_list)
@@ -655,7 +696,7 @@ def start_dm_to_user_campaign_route():
     )
     logger.info(f"Campaign '{campaign_settings['campaign_name']}' completed, bhen ke laude!")
     
-    return jsonify({"status": "success", "message": "DM to user campaign shuru ho gaya, ab dekhte hai kya gaand marti hai!"})
+    return jsonify({"status": "success", "message": "DM to user campaign shuru ho gaya, ab dek देखते है kya gaand marti hai!"})
 
 
 @app.route("/change_gc_name", methods=["POST"])
@@ -664,11 +705,12 @@ def change_gc_name_route():
     data = request.json
     group_id = data.get("group_id")
     new_name = data.get("new_name")
+    username_from_frontend = data.get("username") # Logged in user ka username
 
-    if not group_id or not new_name:
-        return jsonify({"status": "error", "message": "MADARCHOD! Group ID ya Naya Naam missing hai!"}), 400
+    if not all([group_id, new_name, username_from_frontend]):
+        return jsonify({"status": "error", "message": "MADARCHOD! Group ID, Naya Naam ya Username missing hai!"}), 400
 
-    session_data = insta_sessions_collection.find_one({"username": INSTA_USERNAME_GLOBAL})
+    session_data = insta_sessions_collection.find_one({"username": username_from_frontend})
     if not session_data or "cookies" not in session_data:
         return jsonify({"status": "error", "message": "MADARCHOD! Instagram session data missing. Pehle login kar!"}), 401
     
@@ -703,11 +745,12 @@ def submit_challenge_response_route():
     """OTP/CAPTCHA response handle karega."""
     data = request.json
     response_code = data.get("response_code")
+    username_from_frontend = data.get("username") # Logged in user ka username
     
-    if not response_code:
-        return jsonify({"status": "error", "message": "OYE BSDK! Response code missing hai!"}), 400
+    if not response_code or not username_from_frontend:
+        return jsonify({"status": "error", "message": "OYE BSDK! Response code ya Username missing hai!"}), 400
 
-    session_data = insta_sessions_collection.find_one({"username": INSTA_USERNAME_GLOBAL})
+    session_data = insta_sessions_collection.find_one({"username": username_from_frontend})
     if not session_data or "cookies" not in session_data:
         return jsonify({"status": "error", "message": "MADARCHOD! Instagram session data missing. Pehle login kar!"}), 400
     
@@ -718,7 +761,7 @@ def submit_challenge_response_route():
             success, updated_cookies = submit_challenge_response_playwright(response_code, p, cookies)
             if success:
                 insta_sessions_collection.update_one(
-                    {"username": INSTA_USERNAME_GLOBAL},
+                    {"username": username_from_frontend},
                     {"$set": {"cookies": json.dumps(updated_cookies)}},
                     upsert=True
                 )
