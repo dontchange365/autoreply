@@ -320,7 +320,7 @@
         // --- Check Login Status on Page Load ---
         async function checkLoginStatus() {
             console.log("Frontend Debug: Checking login status from backend.");
-            const data = await fetchData(`${backendUrl}/check_login_status`); // Naya endpoint backend mein banega
+            const data = await fetchData(`${backendUrl}/check_login_status`);
             console.log("Frontend Debug: Login status response:", data);
 
             if (data.status === 'logged_in') {
@@ -363,7 +363,7 @@
             if (data.status === 'success') {
                 showMessage('login-message', data.message, 'success');
                 document.getElementById('challenge-section').classList.add('hidden');
-                updateLoginUI(true, username); // Update UI on successful login
+                updateLoginUI(true, username);
                 console.log("Frontend Debug: Login successful. Hiding challenge section.");
             } else if (data.status === 'challenge') {
                 showMessage('login-message', data.message, 'info');
@@ -374,23 +374,23 @@
             } else {
                 showMessage('login-message', data.message, 'error');
                 document.getElementById('challenge-section').classList.add('hidden');
-                updateLoginUI(false); // Ensure UI is logged out on error
+                updateLoginUI(false);
                 console.log("Frontend Debug: Login failed with error. Hiding challenge section.");
             }
         }
 
         // --- Logout Function ---
         async function logout() {
-            const messageDiv = document.getElementById('login-message'); // Using login message div for logout feedback
+            const messageDiv = document.getElementById('login-message');
             showMessage('login-message', 'Logging out...', 'info');
             console.log("Frontend Debug: Sending logout request to backend.");
-            const data = await fetchData(`${backendUrl}/logout`); // Naya endpoint backend mein banega
+            const data = await fetchData(`${backendUrl}/logout`);
             console.log("Frontend Debug: Logout response from backend:", data);
 
             if (data.status === 'success') {
                 showMessage('login-message', data.message, 'success');
-                updateLoginUI(false); // Update UI to logged out state
-                document.getElementById('username').value = ''; // Clear fields
+                updateLoginUI(false);
+                document.getElementById('username').value = '';
                 document.getElementById('password').value = '';
             } else {
                 showMessage('login-message', data.message, 'error');
@@ -421,9 +421,8 @@
                 console.log("Frontend Debug: Challenge solved. Hiding section.");
             } else {
                 showMessage('challenge-message', data.message, 'error');
-                // If challenge fails, might need to re-login or show specific error
                 if (data.message.includes("Challenge solution failed")) {
-                    updateLoginUI(false); // Assume session is bad
+                    updateLoginUI(false);
                 }
                 console.log("Frontend Debug: Challenge solution failed.");
             }
@@ -662,7 +661,6 @@
             document.getElementById('username').value = 'noncence._';
             document.getElementById('password').value = 'shammu@love3';
             
-            // Check login status on page load
             checkLoginStatus(); 
         });
     </script>
