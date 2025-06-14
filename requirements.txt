@@ -1,5 +1,5 @@
 Flask
-git+https://github.com/adw0rd/instagrapi.git@main # Direct latest code from main branch
+git+https://github.com/adw0rd/instagrapi.git@main
 pymongo
 gunicorn
 Pillow>=8.1.1
