@@ -3,13 +3,13 @@ from instagrapi import Client
 from pymongo import MongoClient
 import time
 import os
-import json # Cookies ko JSON format mein save/load karne ke liye
+import json
 
 app = Flask(__name__)
 
 # --- MongoDB Connection ---
 # Tera diya hua MongoDB URI
-MONGO_URI = "mongodb+srv://dontchange365:DtUiOMFzQVM0tG9l@nobifeedback.9ntuipc.mongodb.net/?retryWrites=true&w=majority&appName=nobifeedback"
+MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://dontchange365:DtUiOMFzQVM0tG9l@nobifeedback.9ntuipc.mongodb.net/?retryWrites=true&w=majority&appName=nobifeedback")
 DB_NAME = "instagram_dms_db"
 COLLECTION_NAME = "fetched_dm_threads"
 SESSION_COLLECTION_NAME = "insta_sessions" # Naya collection session ke liye
@@ -27,7 +27,6 @@ except Exception as e:
 # --- Instagrapi Client (Global Instance) ---
 cl = Client()
 # Tere diye hue credentials. Ye ab Render pe Environment Variables se aayenge.
-# Local testing ke liye yahan hardcode kar sakte ho, par Render pe ENV vars use karna.
 USERNAME = os.getenv("INSTA_USERNAME", "noncence._")
 PASSWORD = os.getenv("INSTA_PASSWORD", "shammu@love3")
 
@@ -52,25 +51,25 @@ def load_instagrapi_session():
         session_data = session_collection.find_one({"_id": "current_session"})
         if session_data and "settings" in session_data:
             cl.set_settings(session_data["settings"])
-            print("Instagrapi session loaded from MongoDB. 💻")
-            return True
+            # Load hone ke baad, test bhi kar le
+            if cl.test_account(): # <-- Yahan test kar raha hoon
+                print("Instagrapi session loaded from MongoDB and is valid. 💻")
+                return True
+            else:
+                print("Instagrapi session loaded but is invalid. Need new login. 👊")
+                cl.set_settings({}) # Clear invalid settings
+                session_collection.delete_one({"_id": "current_session"}) # Delete invalid session
+                return False
         else:
             print("No saved session found in MongoDB. 👊")
             return False
     except Exception as e:
-        print(f"Session load karte hue gaand phat gayi: {e} 🤬")
+        print(f"Session load karte hue ya test karte hue gaand phat gayi: {e} 🤬")
         return False
 
 # Initial check for session on server start
 if load_instagrapi_session():
-    print("Attempting to verify loaded session...")
-    try:
-        cl.get_timeline_feed() # Koi simple API call jisse session test ho jaye
-        print("Loaded session is valid. 🔥")
-    except Exception as e:
-        print(f"Loaded session invalid: {e}. Need new login. 🤬")
-        cl.set_settings({}) # Clear invalid settings
-        session_collection.delete_one({"_id": "current_session"}) # Delete invalid session
+    print("Starting with a valid session.")
 else:
     print("Starting without a valid session. Need a web login or manual session creation.")
 
@@ -98,14 +97,13 @@ def save_dm_thread_to_db(thread_id, thread_name, is_group=False):
 # Main HTML page serve karne ke liye
 @app.route('/')
 def index():
-    return render_template('index.html') # Ye ab ek HTML file render karega
+    return render_template('index.html')
 
 
 @app.route('/web_login', methods=['POST'])
 def web_login():
-    # Render pe direct Selenium web login karna complex hai.
-    # Iske bajaye, ye route sirf error dega aur user ko batayega ki session generate karo.
-    # Ye assume karta hai ki tumne session MongoDB mein manually banake save kiya hai.
+    # Render pe direct Selenium web login karna complex hai aur recommended nahi.
+    # Ye route sirf error dega aur user ko batayega ki session generate karo.
     return jsonify({
         "status": "error",
         "message": "Web login via browser automation (Selenium) is NOT supported directly on this server. "
@@ -116,25 +114,35 @@ def web_login():
 
 @app.route('/check_session', methods=['GET'])
 def check_session():
-    if cl.is_logged_in:
-        try:
-            cl.get_timeline_feed(amount=1) # Minimal API call to check session validity
+    try:
+        if cl.test_account(): # Naya tarika check karne ka
             return jsonify({"status": "success", "message": "Session is active, bhenchod!"})
-        except Exception as e:
-            # Session expired ya invalid
-            print(f"Session check failed: {e}. Session invalid. 🤬")
+        else:
+            print("Session test failed. Session invalid. 🤬")
             cl.set_settings({}) # Clear settings
             session_collection.delete_one({"_id": "current_session"}) # Delete from DB
             return jsonify({"status": "session_expired", "message": "Session expired! Naya login kar, chutiye!"}), 401
-    else:
-        return jsonify({"status": "session_expired", "message": "No active session. Login required!"}), 401
+    except Exception as e:
+        print(f"Session check encountered an error: {e}. Session invalid. 🤬")
+        cl.set_settings({})
+        session_collection.delete_one({"_id": "current_session"})
+        return jsonify({"status": "session_expired", "message": f"Session check failed: {e}. Naya login kar, chutiye!"}), 401
 
 
-# --- DM Fetching and Sending (pehle wale hi hain, bas session check add kiya) ---
+# --- DM Fetching and Sending (Similar changes to check login status) ---
+
+# Helper function to wrap login status check
+def is_logged_in_wrapper():
+    """Helper to check login status, replacing direct is_logged_in attribute."""
+    try:
+        return cl.test_account()
+    except Exception as e:
+        print(f"Login check wrapper error: {e}")
+        return False
 
 @app.route('/fetch_all_dms', methods=['GET'])
 def fetch_all_dms():
-    if not cl.is_logged_in:
+    if not is_logged_in_wrapper():
         return jsonify({"status": "session_expired", "message": "Session expired or not logged in. Login kar pehle, chutiye!"}), 401
     try:
         all_conversations = cl.direct_threads()
@@ -142,8 +150,11 @@ def fetch_all_dms():
         all_dms_data = []
 
         for thread in all_conversations:
-            thread_name = thread.thread_title if len(thread.users) > 2 else next((u.username for u in thread.users if u.username != USERNAME), "Unknown User")
+            # Handle cases where thread.users might be empty or your own username is the only one
+            other_user = next((u for u in thread.users if u.username != USERNAME), None)
+            thread_name = thread.thread_title if len(thread.users) > 2 else (other_user.username if other_user else "Unknown User")
             is_group = True if len(thread.users) > 2 else False
+
             if save_dm_thread_to_db(thread.id, thread_name, is_group):
                 fetched_count += 1
             all_dms_data.append({"id": thread.id, "name": thread_name, "is_group": is_group})
@@ -155,8 +166,7 @@ def fetch_all_dms():
         })
     except Exception as e:
         print(f"Error fetching all DMs: {e}")
-        # Agar session related error hai, toh frontend ko bata de
-        if "login" in str(e).lower() or "session" in str(e).lower():
+        if "login" in str(e).lower() or "session" in str(e).lower() or not is_logged_in_wrapper():
             cl.set_settings({})
             session_collection.delete_one({"_id": "current_session"})
             return jsonify({"status": "session_expired", "message": f"Failed to fetch DMs: Session invalid or expired. Error: {e}"}), 401
@@ -164,7 +174,7 @@ def fetch_all_dms():
 
 @app.route('/fetch_new_dms', methods=['GET'])
 def fetch_new_dms():
-    if not cl.is_logged_in:
+    if not is_logged_in_wrapper():
         return jsonify({"status": "session_expired", "message": "Session expired or not logged in. Login kar pehle, chutiye!"}), 401
     try:
         all_conversations = cl.direct_threads()
@@ -172,7 +182,8 @@ def fetch_new_dms():
         new_dms_data = []
 
         for thread in all_conversations:
-            thread_name = thread.thread_title if len(thread.users) > 2 else next((u.username for u in thread.users if u.username != USERNAME), "Unknown User")
+            other_user = next((u for u in thread.users if u.username != USERNAME), None)
+            thread_name = thread.thread_title if len(thread.users) > 2 else (other_user.username if other_user else "Unknown User")
             is_group = True if len(thread.users) > 2 else False
             if not dm_collection.find_one({"thread_id": thread.id}):
                 if save_dm_thread_to_db(thread.id, thread_name, is_group):
@@ -186,7 +197,7 @@ def fetch_new_dms():
         })
     except Exception as e:
         print(f"Error fetching new DMs: {e}")
-        if "login" in str(e).lower() or "session" in str(e).lower():
+        if "login" in str(e).lower() or "session" in str(e).lower() or not is_logged_in_wrapper():
             cl.set_settings({})
             session_collection.delete_one({"_id": "current_session"})
             return jsonify({"status": "session_expired", "message": f"Failed to fetch new DMs: Session invalid or expired. Error: {e}"}), 401
@@ -204,36 +215,27 @@ def get_fetched_dms():
 
 @app.route('/send_gc_message', methods=['POST'])
 def send_gc_message():
-    if not cl.is_logged_in:
+    if not is_logged_in_wrapper():
         return jsonify({"status": "session_expired", "message": "Session expired or not logged in. Login kar pehle, chutiye!"}), 401
-
     data = request.json
     message_text = data.get('message')
     gc_name = data.get('gc_name')
     delay_seconds = data.get('delay', 0)
-
     if not message_text or not gc_name:
         return jsonify({"status": "error", "message": "Message text aur GC Name required hai, bhen ke laude!"}), 400
-
     try:
         target_gc = dm_collection.find_one({"thread_name": gc_name, "is_group": True})
-
         if not target_gc:
             return jsonify({"status": "error", "message": f"GC '{gc_name}' not found in fetched DMs. Pehle fetch kar, chutiye!"}), 404
-
         target_thread_id = target_gc['thread_id']
-
         cl.direct_send_text(message_text, [target_thread_id])
         print(f"Message '{message_text}' sent to GC: {gc_name} (ID: {target_thread_id}) after {delay_seconds}s delay. 😈")
-        
         if delay_seconds > 0:
             time.sleep(delay_seconds)
-            
         return jsonify({"status": "success", "message": f"Message sent to {gc_name}!"})
-
     except Exception as e:
         print(f"Error sending message to GC: {e}")
-        if "login" in str(e).lower() or "session" in str(e).lower():
+        if "login" in str(e).lower() or "session" in str(e).lower() or not is_logged_in_wrapper():
             cl.set_settings({})
             session_collection.delete_one({"_id": "current_session"})
             return jsonify({"status": "session_expired", "message": f"Failed to send message: Session invalid or expired. Error: {e}"}), 401
@@ -241,4 +243,5 @@ def send_gc_message():
 
 
 if __name__ == '__main__':
+    # Render pe `$PORT` env var se port milta hai. Local pe 5000 use hoga.
     app.run(host='0.0.0.0', debug=True, port=os.getenv('PORT', 5000))
