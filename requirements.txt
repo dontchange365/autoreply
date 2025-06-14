@@ -1,5 +1,5 @@
 Flask
-instagrapi
+instagrapi==2.1.5
 pymongo
 gunicorn
 Pillow>=8.1.1
