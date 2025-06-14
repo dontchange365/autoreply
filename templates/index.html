@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NOBI BOT DM Dominator 😈</title>
+    <style>
+        body {
+            font-family: 'Arial Black', Gadget, sans-serif;
+            background-color: #1a1a1a;
+            color: #00ff00; /* Neon Green */
+            margin: 20px;
+            text-align: center;
+        }
+        h1 {
+            color: #ff0000; /* Red for aggression */
+            text-shadow: 2px 2px #000;
+        }
+        .container {
+            background-color: #333;
+            border: 2px solid #00ff00;
+            padding: 20px;
+            margin: 20px auto;
+            border-radius: 10px;
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.5);
+            max-width: 800px;
+        }
+        button {
+            background-color: #ff0000;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #cc0000;
+        }
+        input[type="text"], input[type="number"], textarea {
+            width: calc(100% - 22px);
+            padding: 10px;
+            margin: 5px 0;
+            border: 1px solid #00ff00;
+            background-color: #222;
+            color: #00ff00;
+            border-radius: 5px;
+        }
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+        .dm-list {
+            background-color: #222;
+            border: 1px solid #00ff00;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 20px;
+            padding: 10px;
+            text-align: left;
+            border-radius: 5px;
+        }
+        .dm-item {
+            padding: 5px 0;
+            border-bottom: 1px dashed #005500;
+        }
+        .dm-item:last-child {
+            border-bottom: none;
+        }
+        .message {
+            margin-top: 20px;
+            color: #ffcc00; /* Yellow for messages */
+            font-size: 1.1em;
+        }
+        #loginStatus {
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding: 5px;
+            border-radius: 3px;
+        }
+        .status-active { color: #00ff00; background-color: rgba(0, 255, 0, 0.1); }
+        .status-expired { color: #ff0000; background-color: rgba(255, 0, 0, 0.1); }
+    </style>
+</head>
+<body>
+    <h1>NOBI BOT: DM Dominator 😈💻🔥</h1>
+
+    <div class="container">
+        <h2>Login & Session Control 🔑</h2>
+        <p id="loginStatus" class="status-expired">Session Status: Checking...</p>
+        <button onclick="webLogin()">Initiate Session Generation (See Server Logs)</button>
+        <button onclick="checkSession()">Check Session Status</button>
+    </div>
+
+    <div class="container">
+        <h2>DM Fetching & Display 👊</h2>
+        <button onclick="fetchAllDMs()">Fetch ALL DMs (MongoDB Save)</button>
+        <button onclick="fetchNewDMs()">Fetch NEW DMs (MongoDB Save)</button>
+        <button onclick="getFetchedDMs()">Display Fetched DMs from DB</button>
+        <div class="dm-list" id="dmList">
+            <p>Fetched DMs will appear here...</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Message Terrorizer 🤬</h2>
+        <textarea id="messageText" placeholder="Teri maa ki chut, message yahan likh!"></textarea><br>
+        <input type="number" id="delaySeconds" placeholder="Delay (seconds) between messages (e.g., 5)" value="0"><br>
+        <input type="text" id="gcName" placeholder="Exact GC Name jahan pelna hai message"><br>
+        <button onclick="sendGCMessage()">TRIGGER Message!</button>
+        <p class="message" id="statusMessage"></p>
+    </div>
+
+    <script>
+        const BACKEND_URL = ""; // Render pe ye blank rahega, same domain se serve hoga
+
+        async function fetchData(endpoint, method = 'GET', body = null) {
+            try {
+                const options = { method: method };
+                if (body) {
+                    options.headers = { 'Content-Type': 'application/json' };
+                    options.body = JSON.stringify(body);
+                }
+                const response = await fetch(`${BACKEND_URL}/${endpoint}`, options);
+                const data = await response.json();
+                
+                // Session expired handling
+                if (response.status === 401 && data.status === 'session_expired') {
+                    document.getElementById('loginStatus').textContent = "Session Status: EXPIRED! Naya login kar, chutiye!";
+                    document.getElementById('loginStatus').className = "status-expired";
+                    alert(data.message);
+                    return null; // Return null to indicate failure
+                }
+
+                if (data.status === 'success') {
+                    return data;
+                } else {
+                    alert('Error: ' + data.message);
+                    return null;
+                }
+            } catch (error) {
+                alert('Network Error, teri maa ki chut: ' + error.message);
+                return null;
+            }
+        }
+
+        function displayDMs(dms) {
+            const dmListDiv = document.getElementById('dmList');
+            dmListDiv.innerHTML = ''; // Clear previous
+            if (dms && dms.length > 0) {
+                dms.forEach(dm => {
+                    const p = document.createElement('p');
+                    p.className = 'dm-item';
+                    p.textContent = `ID: ${dm.id} | Name: ${dm.name} ${dm.is_group ? '(GC)' : ''}`;
+                    dmListDiv.appendChild(p);
+                });
+            } else {
+                dmListDiv.innerHTML = '<p>No DMs fetched yet, chutiye!</p>';
+            }
+        }
+
+        async function webLogin() {
+            const statusMessageDiv = document.getElementById('statusMessage');
+            statusMessageDiv.textContent = "Server pe session generate karne ki koshish. OTP ya challenge aaya toh logs mein dekho ya manually session banao PC se! 🤬";
+            statusMessageDiv.style.color = '#ffcc00';
+
+            // Server-side pe Selenium chalana complex hai.
+            // Ye button ab sirf user ko batayega ki session manually generate karna padega.
+            const result = await fetchData('web_login', 'POST', {});
+            if (result) {
+                statusMessageDiv.textContent = result.message;
+                statusMessageDiv.style.color = '#00ff00';
+                checkSession(); // Check session status after login attempt
+            } else {
+                statusMessageDiv.textContent = "Session generation failed. Refer to server logs or create session manually from PC. 🤬";
+                statusMessageDiv.style.color = '#ff0000';
+            }
+        }
+
+        async function checkSession() {
+            const loginStatusDiv = document.getElementById('loginStatus');
+            loginStatusDiv.textContent = "Session Status: Checking...";
+            loginStatusDiv.className = ""; // Clear existing classes
+
+            const result = await fetchData('check_session');
+            if (result && result.status === 'success') {
+                loginStatusDiv.textContent = "Session Status: ACTIVE! 🔥";
+                loginStatusDiv.className = "status-active";
+            } else {
+                loginStatusDiv.textContent = "Session Status: EXPIRED! Naya login kar, chutiye!";
+                loginStatusDiv.className = "status-expired";
+            }
+        }
+
+        async function fetchAllDMs() {
+            const result = await fetchData('fetch_all_dms');
+            if (result) {
+                alert(result.message);
+                displayDMs(result.data); // Display all fetched DMs
+            }
+        }
+
+        async function fetchNewDMs() {
+            const result = await fetchData('fetch_new_dms');
+            if (result) {
+                alert(result.message);
+                // Optionally refresh all DMs from DB to show new ones
+                getFetchedDMs();
+            }
+        }
+
+        async function getFetchedDMs() {
+            const result = await fetchData('get_fetched_dms');
+            if (result) {
+                displayDMs(result.data);
+            }
+        }
+
+        async function sendGCMessage() {
+            const messageText = document.getElementById('messageText').value;
+            const delaySeconds = document.getElementById('delaySeconds').value;
+            const gcName = document.getElementById('gcName').value;
+            const statusMessageDiv = document.getElementById('statusMessage');
+
+            if (!messageText || !gcName) {
+                statusMessageDiv.textContent = "Message text aur GC Name required hai, bhen ke laude!";
+                return;
+            }
+
+            const result = await fetchData('send_gc_message', 'POST', {
+                message: messageText,
+                gc_name: gcName,
+                delay: parseInt(delaySeconds)
+            });
+
+            if (result) {
+                statusMessageDiv.textContent = result.message;
+                statusMessageDiv.style.color = '#00ff00';
+            } else {
+                statusMessageDiv.textContent = "Failed to send message. 🤬";
+                statusMessageDiv.style.color = '#ff0000';
+            }
+        }
+
+        // Initial checks when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            checkSession();
+            getFetchedDMs();
+        });
+    </script>
+</body>
+  </html>
