@@ -1,0 +1,10 @@
+# Python related
+__pycache__/
+*.pyc
+*.log
+.env
+venv/
+.venv/
+
+# Render/Deployment related
+.render/
