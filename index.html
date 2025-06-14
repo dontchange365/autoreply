@@ -248,7 +248,6 @@
         <button onclick="fetchLogs()">Refresh Logs</button>
     </div>
 
-
     <script>
         /* JavaScript ka chutiyapa yahin pel */
         const backendUrl = window.location.origin;
@@ -257,7 +256,7 @@
         let currentLoggedInUser = null;
 
         // --- Removed Spinner Control Functions ---
-        // showLoading() and hideLoading() functions are removed as per user request.
+        // showLoading() and hideLoading() functions are removed.
 
         async function postData(url, data) {
             // showLoading("Backend ko request bhej raha hoon..."); // Removed call
@@ -303,7 +302,7 @@
             const element = document.getElementById(elementId);
             element.textContent = message;
             element.className = `message ${type}`;
-            // hideLoading(); // Removed, as showLoading is also removed.
+            // hideLoading(); // Removed as spinner is completely removed
             setTimeout(() => {
                 element.textContent = '';
                 element.className = 'message';
@@ -341,6 +340,7 @@
                 updateLoginUI(false);
                 showMessage('login-message', 'Koi active session nahi mila. Login kar, bhen ke laude!', 'warning');
             }
+            // No hideLoading() here, as spinner is completely removed.
         }
 
         function toggleSpamTarget() {
@@ -672,7 +672,7 @@
             document.getElementById('username').value = 'noncence._';
             document.getElementById('password').value = 'shammu@love3';
             
-            // Initial check for login status on page load
+            // Initial check for login status on page load (only once)
             checkLoginStatus(); 
         });
     </script>
