@@ -133,12 +133,26 @@
             margin: 15px auto;
             border: 1px solid #555;
         }
+        #logged-in-status {
+            background-color: #4CAF50; /* Green */
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
     </style>
 </head>
 <body>
     <h1>😈 NOBI BOT: Instagram Destroyer 🤬</h1>
 
-    <div class="container">
+    <div id="logged-in-section" class="container hidden">
+        <div id="logged-in-status"></div>
+        <button onclick="logout()">Logout (Session Ki Gaand Maro)</button>
+    </div>
+
+    <div id="login-section" class="container">
         <h2>--- Login (Teri Gaand Maro Pehle) ---</h2>
         <label for="username">Instagram Username:</label>
         <input type="text" id="username" placeholder="noncence._" required>
@@ -235,7 +249,10 @@
 
     <script>
         /* JavaScript ka chutiyapa yahin pel */
-        const backendUrl = window.location.origin; // Same origin as the Flask app
+        const backendUrl = window.location.origin;
+
+        // Global variable to track login state and username
+        let currentLoggedInUser = null;
 
         async function postData(url, data) {
             try {
@@ -278,7 +295,39 @@
             setTimeout(() => {
                 element.textContent = '';
                 element.className = 'message';
-            }, 5000); // 5 seconds baad gaayab kar
+            }, 5000);
+        }
+
+        function updateLoginUI(loggedIn, username = null) {
+            const loginSection = document.getElementById('login-section');
+            const loggedInSection = document.getElementById('logged-in-section');
+            const loggedInStatusDiv = document.getElementById('logged-in-status');
+
+            if (loggedIn) {
+                loginSection.classList.add('hidden');
+                loggedInSection.classList.remove('hidden');
+                loggedInStatusDiv.textContent = `Logged in as: ${username} (Teri Gaand Active Hai)`;
+                currentLoggedInUser = username; // Store current logged-in user
+                console.log(`Frontend Debug: UI updated to logged in state for ${username}.`);
+            } else {
+                loginSection.classList.remove('hidden');
+                loggedInSection.classList.add('hidden');
+                currentLoggedInUser = null; // Clear logged-in user
+                console.log("Frontend Debug: UI updated to logged out state.");
+            }
+        }
+
+        // --- Check Login Status on Page Load ---
+        async function checkLoginStatus() {
+            console.log("Frontend Debug: Checking login status from backend.");
+            const data = await fetchData(`${backendUrl}/check_login_status`); // Naya endpoint backend mein banega
+            console.log("Frontend Debug: Login status response:", data);
+
+            if (data.status === 'logged_in') {
+                updateLoginUI(true, data.username);
+            } else {
+                updateLoginUI(false);
+            }
         }
 
         // Toggle spam target section
@@ -314,21 +363,40 @@
             if (data.status === 'success') {
                 showMessage('login-message', data.message, 'success');
                 document.getElementById('challenge-section').classList.add('hidden');
+                updateLoginUI(true, username); // Update UI on successful login
                 console.log("Frontend Debug: Login successful. Hiding challenge section.");
             } else if (data.status === 'challenge') {
                 showMessage('login-message', data.message, 'info');
                 document.getElementById('challenge-section').classList.remove('hidden');
                 document.getElementById('challenge-text').textContent = data.message;
-                // CAPTCHA image will be displayed if backend sends URL/base64
-                document.getElementById('captcha-image').classList.add('hidden'); // Default hidden
-                // if (data.captcha_image) { ... logic to display image ... }
+                document.getElementById('captcha-image').classList.add('hidden');
                 console.log("Frontend Debug: Login challenge received. Showing challenge section.");
             } else {
                 showMessage('login-message', data.message, 'error');
-                document.getElementById('challenge-section').classList.add('hidden'); // Error pe challenge chupa
+                document.getElementById('challenge-section').classList.add('hidden');
+                updateLoginUI(false); // Ensure UI is logged out on error
                 console.log("Frontend Debug: Login failed with error. Hiding challenge section.");
             }
         }
+
+        // --- Logout Function ---
+        async function logout() {
+            const messageDiv = document.getElementById('login-message'); // Using login message div for logout feedback
+            showMessage('login-message', 'Logging out...', 'info');
+            console.log("Frontend Debug: Sending logout request to backend.");
+            const data = await fetchData(`${backendUrl}/logout`); // Naya endpoint backend mein banega
+            console.log("Frontend Debug: Logout response from backend:", data);
+
+            if (data.status === 'success') {
+                showMessage('login-message', data.message, 'success');
+                updateLoginUI(false); // Update UI to logged out state
+                document.getElementById('username').value = ''; // Clear fields
+                document.getElementById('password').value = '';
+            } else {
+                showMessage('login-message', data.message, 'error');
+            }
+        }
+
 
         // --- Submit Challenge Response ---
         async function submitChallengeResponse() {
@@ -343,16 +411,20 @@
 
             showMessage('challenge-message', 'Challenge submit kar raha hoon...', 'info');
             console.log("Frontend Debug: Sending challenge response to backend.");
-            const data = await postData(`${backendUrl}/submit_challenge_response`, { response_code: responseCode });
+            const data = await postData(`${backendUrl}/submit_challenge_response`, { response_code: responseCode, username: currentLoggedInUser });
             console.log("Frontend Debug: Challenge response from backend:", data);
 
             if (data.status === 'success') {
                 showMessage('challenge-message', data.message, 'success');
                 document.getElementById('challenge-section').classList.add('hidden');
-                document.getElementById('challenge-response').value = ''; // Clear field
+                document.getElementById('challenge-response').value = '';
                 console.log("Frontend Debug: Challenge solved. Hiding section.");
             } else {
                 showMessage('challenge-message', data.message, 'error');
+                // If challenge fails, might need to re-login or show specific error
+                if (data.message.includes("Challenge solution failed")) {
+                    updateLoginUI(false); // Assume session is bad
+                }
                 console.log("Frontend Debug: Challenge solution failed.");
             }
         }
@@ -381,7 +453,7 @@
             
             if (data.status === 'success' || data.status === 'warning') {
                 showMessage('group-message', data.message, data.status);
-                fetchGroups(); // List refresh kar
+                fetchGroups();
                 console.log("Frontend Debug: Group added/updated. Fetching groups.");
             } else {
                 showMessage('group-message', data.message, 'error');
@@ -394,7 +466,7 @@
             const selectGroup = document.getElementById('select-group');
             const selectedGroupForSpam = document.getElementById('selected-group-for-spam');
             
-            selectGroup.innerHTML = '<option value="">Select a group to spam...</option>'; // Clear existing
+            selectGroup.innerHTML = '<option value="">Select a group to spam...</option>';
             selectedGroupForSpam.innerHTML = '<option value="">Select a group from above...</option>';
             
             console.log("Frontend Debug: Fetching groups from backend.");
@@ -414,10 +486,8 @@
                         option2.textContent = `${group.group_name} (${group.group_id})`;
                         selectedGroupForSpam.appendChild(option2);
                     });
-                    showMessage('group-message', 'Groups fetch ho gaye!', 'info');
                     console.log(`Frontend Debug: ${data.groups.length} groups loaded.`);
                 } else {
-                    showMessage('group-message', 'Koi group nahi mila, bhen ke laude!', 'warning');
                     console.log("Frontend Debug: No groups found.");
                 }
             } else {
@@ -447,7 +517,6 @@
                     console.log("Frontend Debug: Username(s) missing for spam.");
                     return;
                 }
-                // Basic validation for usernames (letters, numbers, periods, underscores, commas)
                 if (!/^[a-zA-Z0-9._,]+$/.test(targetId)) {
                     showMessage('spam-message', 'Invalid username format! Sirf letters, numbers, periods, underscores, commas allowed.', 'error');
                     console.log("Frontend Debug: Invalid username(s) format.");
@@ -466,6 +535,13 @@
                 console.log("Frontend Debug: Missing message/delay settings for spam.");
                 return;
             }
+            
+            if (!currentLoggedInUser) {
+                showMessage('spam-message', 'MADARCHOD! Pehle Login kar, session nahi hai!', 'error');
+                console.log("Frontend Debug: Not logged in, cannot start campaign.");
+                return;
+            }
+
 
             showMessage('spam-message', 'Spamming campaign shuru kar raha hoon...', 'info');
             console.log(`Frontend Debug: Starting spam campaign type: ${spamType}, target: ${targetName}`);
@@ -475,7 +551,8 @@
                 num_messages: parseInt(numMessages),
                 min_delay: parseFloat(minDelay),
                 max_delay: parseFloat(maxDelay),
-                messages: messagesText
+                messages: messagesText,
+                username: currentLoggedInUser // Send current logged in user for session retrieval
             };
 
             if (spamType === 'group') {
@@ -512,10 +589,17 @@
                 console.log("Frontend Debug: Invalid Group ID format for changeGroupName.");
                 return;
             }
+            
+            if (!currentLoggedInUser) {
+                showMessage('name-change-message', 'MADARCHOD! Pehle Login kar, session nahi hai!', 'error');
+                console.log("Frontend Debug: Not logged in, cannot change group name.");
+                return;
+            }
+
 
             showMessage('name-change-message', 'Group ka naam badal raha hoon...', 'info');
             console.log(`Frontend Debug: Sending changeGroupName request for ID: ${groupId}, New Name: ${newName}`);
-            const data = await postData(`${backendUrl}/change_gc_name`, { group_id: groupId, new_name: newName });
+            const data = await postData(`${backendUrl}/change_gc_name`, { group_id: groupId, new_name: newName, username: currentLoggedInUser });
             console.log("Frontend Debug: Change group name response:", data);
 
             if (data.status === 'success') {
@@ -528,14 +612,11 @@
         // --- Fetch Logs Function ---
         async function fetchLogs() {
             const logsContainer = document.getElementById('logs-container');
-            // No logsContainer.innerHTML = ''; here, just append new ones
-            // To clear only when explicitly refreshing, uncomment the line below.
-            // logsContainer.innerHTML = ''; 
+            logsContainer.innerHTML = ''; 
 
             console.log("Frontend Debug: Fetching logs from backend.");
             const data = await fetchData(`${backendUrl}/get_logs`);
-            // Clear existing logs in case of full refresh, otherwise append
-            logsContainer.innerHTML = ''; // Clear existing to show fresh 50 logs
+            console.log("Frontend Debug: Get logs response:", data);
 
             if (data.status === 'success') {
                 if (data.logs && data.logs.length > 0) {
@@ -547,12 +628,12 @@
                         } else if (log.type.includes('Failed') || log.type.includes('Error')) {
                             logEntry.classList.add('error-log');
                         } else {
-                            logEntry.classList.add('info-log'); // Default for general info
+                            logEntry.classList.add('info-log');
                         }
                         logEntry.textContent = `[${log.timestamp}] [${log.type}] ${log.description} ${log.details ? ': ' + log.details : ''}`;
                         logsContainer.appendChild(logEntry);
                     });
-                    logsContainer.scrollTop = logsContainer.scrollHeight; // Scroll to bottom
+                    logsContainer.scrollTop = logsContainer.scrollHeight;
                     console.log(`Frontend Debug: ${data.logs.length} logs loaded.`);
                 } else {
                     const noLogs = document.createElement('div');
@@ -570,17 +651,19 @@
             }
         }
 
-        // Initial fetch for groups and logs when page loads
+        // Initial setup when page loads
         document.addEventListener('DOMContentLoaded', () => {
-            toggleSpamTarget(); // Initial setup for spam target
+            toggleSpamTarget();
             fetchGroups();
             fetchLogs();
-            setInterval(fetchLogs, 15000); // Har 15 second mein logs refresh kar, bhen ke laude
+            setInterval(fetchLogs, 15000);
             document.getElementById('challenge-section').classList.add('hidden');
 
-            // Prefill with your username/password for convenience
             document.getElementById('username').value = 'noncence._';
             document.getElementById('password').value = 'shammu@love3';
+            
+            // Check login status on page load
+            checkLoginStatus(); 
         });
     </script>
 </body>
