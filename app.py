@@ -8,7 +8,7 @@ import json
 app = Flask(__name__)
 
 # --- MongoDB Connection ---
-# Tera diya hua MongoDB URI
+# Tera diya hua MongoDB URI (Environment Variable se lega ya default)
 MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://dontchange365:DtUiOMFzQVM0tG9l@nobifeedback.9ntuipc.mongodb.net/?retryWrites=true&w=majority&appName=nobifeedback")
 DB_NAME = "instagram_dms_db"
 COLLECTION_NAME = "fetched_dm_threads"
@@ -22,11 +22,10 @@ try:
     print("MongoDB connected, bhenchod! 🔥")
 except Exception as e:
     print(f"MongoDB connection mein gaand phat gayi: {e} 🤬")
-    # Agar connect nahi hua toh server chalega, par data save nahi hoga.
 
 # --- Instagrapi Client (Global Instance) ---
 cl = Client()
-# Tere diye hue credentials. Ye ab Render pe Environment Variables se aayenge.
+# Tere diye hue credentials (Environment Variables se lega ya default)
 USERNAME = os.getenv("INSTA_USERNAME", "noncence._")
 PASSWORD = os.getenv("INSTA_PASSWORD", "shammu@love3")
 
@@ -48,23 +47,33 @@ def save_instagrapi_session():
 # Function to load Instagrapi session from MongoDB
 def load_instagrapi_session():
     try:
+        print("Loading session: Checking for current_session in DB...")
         session_data = session_collection.find_one({"_id": "current_session"})
-        if session_data and "settings" in session_data:
-            cl.set_settings(session_data["settings"])
-            # Load hone ke baad, test bhi kar le
-            if cl.test_account(): # <-- Yahan test kar raha hoon
-                print("Instagrapi session loaded from MongoDB and is valid. 💻")
-                return True
+        if session_data:
+            print(f"Session data found: _id={session_data.get('_id')}, settings_key_exists={'settings' in session_data}, last_updated={session_data.get('last_updated')}")
+            if "settings" in session_data:
+                cl.set_settings(session_data["settings"])
+                print("Session settings loaded into instagrapi client. Now testing account...")
+                if cl.test_account(): # <-- Yahan test kar raha hoon
+                    print("Instagrapi session loaded from MongoDB and is valid. 💻")
+                    return True
+                else:
+                    print("Instagrapi session loaded but is invalid. Clearing and retrying. 👊")
+                    cl.set_settings({}) # Clear invalid settings
+                    session_collection.delete_one({"_id": "current_session"}) # Delete invalid session
+                    return False
             else:
-                print("Instagrapi session loaded but is invalid. Need new login. 👊")
-                cl.set_settings({}) # Clear invalid settings
-                session_collection.delete_one({"_id": "current_session"}) # Delete invalid session
+                print("Session data found, but 'settings' key is missing. Deleting invalid session. 👊")
+                session_collection.delete_one({"_id": "current_session"})
                 return False
         else:
-            print("No saved session found in MongoDB. 👊")
+            print("No saved session document found with _id: 'current_session'. 👊")
             return False
     except Exception as e:
-        print(f"Session load karte hue ya test karte hue gaand phat gayi: {e} 🤬")
+        print(f"Session load/test encountered a critical error: {e} 🤬")
+        # Ensure to clear client settings and db entry if a severe error occurs
+        cl.set_settings({})
+        session_collection.delete_one({"_id": "current_session"})
         return False
 
 # Initial check for session on server start
@@ -129,7 +138,7 @@ def check_session():
         return jsonify({"status": "session_expired", "message": f"Session check failed: {e}. Naya login kar, chutiye!"}), 401
 
 
-# --- DM Fetching and Sending (Similar changes to check login status) ---
+# --- DM Fetching and Sending ---
 
 # Helper function to wrap login status check
 def is_logged_in_wrapper():
