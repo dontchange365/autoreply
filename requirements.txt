@@ -2,3 +2,4 @@ Flask
 instagrapi
 pymongo
 gunicorn
+Pillow
