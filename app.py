@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, render_template
 from instagrapi import Client
-from instagrapi.exceptions import LoginRequired, ClientError # Nayi import, bhenchod!
+from instagrapi.exceptions import LoginRequired, ClientError # Zaroori exceptions
 import time
 import os
 import json
@@ -8,14 +8,16 @@ import json
 app = Flask(__name__)
 
 # --- FILE-BASED Session Setup ---
-SESSION_FILE_PATH = "session.json" # Root directory mein hi banegi/dhoondegi.
+# Session file ka path. Root directory mein hi banegi/dhoondegi.
+SESSION_FILE_PATH = "session.json"
 
 # --- Instagrapi Client (Global Instance) ---
 cl = Client()
+# Tere diye hue credentials. Environment Variables se lega ya default.
 USERNAME = os.getenv("INSTA_USERNAME", "noncence._")
 PASSWORD = os.getenv("INSTA_PASSWORD", "shammu@love3")
 
-# --- Helper Functions (Modified for File Session & New Test) ---
+# --- Helper Functions ---
 
 # Function to save Instagrapi session to File
 def save_instagrapi_session_to_file():
@@ -37,7 +39,8 @@ def load_instagrapi_session_from_file():
             print("Instagrapi session loaded from file. Now verifying account by API call... 💻")
             
             try:
-                cl.get_timeline_feed(amount=1) # Koi bhi simple API call
+                # 'amount' argument hata diya hai, bhenchod!
+                cl.get_timeline_feed() 
                 print("Instagrapi session from file is valid. 🔥")
                 return True
             except (LoginRequired, ClientError) as e: # Agar login error aaya
@@ -60,11 +63,13 @@ else:
     print("Starting without a valid session. Need manual login or session file.")
 
 # --- Dummy collections for now, since MongoDB is not being used for DMs ---
-dm_collection = None
-session_collection = None
+# (These were placeholders from previous MongoDB version, kept for compatibility if functions used them)
+dm_collection = None 
+session_collection = None 
 
 # --- Routes ---
 
+# Main HTML page serve karne ke liye
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -72,6 +77,8 @@ def index():
 
 @app.route('/web_login', methods=['POST'])
 def web_login():
+    # Render pe direct Selenium web login karna complex hai aur recommended nahi.
+    # Ye route sirf error dega aur user ko batayega ki session generate karo.
     return jsonify({
         "status": "error",
         "message": "Web login via browser automation (Selenium) is NOT supported directly on this server. "
@@ -83,7 +90,8 @@ def web_login():
 @app.route('/check_session', methods=['GET'])
 def check_session():
     try:
-        cl.get_timeline_feed(amount=1) # Direct API call to check session
+        # 'amount' argument hata diya hai, bhenchod!
+        cl.get_timeline_feed() 
         return jsonify({"status": "success", "message": "Session is active, bhenchod!"})
     except (LoginRequired, ClientError) as e:
         print(f"Session check failed during API call: {e}. Session invalid. 🤬")
@@ -99,10 +107,11 @@ def check_session():
 
 # --- DM Fetching and Sending (No DB persistence for DMs now) ---
 
+# Helper function to wrap login status check
 def is_logged_in_wrapper():
     # Ab is wrapper ko bhi API call se check karenge
     try:
-        cl.get_timeline_feed(amount=1)
+        cl.get_timeline_feed() # 'amount' argument hata diya hai, bhenchod!
         return True
     except (LoginRequired, ClientError):
         return False
@@ -163,7 +172,7 @@ def fetch_new_dms():
 
 @app.route('/get_fetched_dms', methods=['GET'])
 def get_fetched_dms():
-    # Ye function ab kuch return nahi karega agar DMs DB mein save nahi ho rahe.
+    # Ye function ab kuch return nahi karega agar DMs DB/local file mein save nahi ho rahe.
     # Frontend ko empty list dega ya "Not implemented"
     return jsonify({"status": "info", "message": "DM history not stored locally, fetch live.", "data": []})
 
