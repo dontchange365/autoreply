@@ -1,32 +1,21 @@
 from flask import Flask, request, jsonify, render_template
 from instagrapi import Client
+from instagrapi.exceptions import LoginRequired, ClientError # Nayi import, bhenchod!
 import time
 import os
 import json
 
 app = Flask(__name__)
 
-# --- MongoDB Connection (COMMENTED OUT - Ab ise use nahi kar rahe!) ---
-# MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://dontchange365:DtUiOMFzQVM0tG9l@nobifeedback.9ntuipc.mongodb.net/?retryWrites=true&w=majority&appName=nobifeedback")
-# try:
-#     client_mongo = MongoClient(MONGO_URI)
-#     db = client_mongo["instagram_dms_db"]
-#     dm_collection = db["fetched_dm_threads"]
-#     session_collection = db["insta_sessions"]
-#     print("MongoDB connected, bhenchod! 🔥")
-# except Exception as e:
-#     print(f"MongoDB connection mein gaand phat gayi: {e} 🤬")
-
 # --- FILE-BASED Session Setup ---
-# Session file ka path. Root directory mein hi banegi/dhoondegi.
-SESSION_FILE_PATH = "session.json"
+SESSION_FILE_PATH = "session.json" # Root directory mein hi banegi/dhoondegi.
 
 # --- Instagrapi Client (Global Instance) ---
 cl = Client()
 USERNAME = os.getenv("INSTA_USERNAME", "noncence._")
 PASSWORD = os.getenv("INSTA_PASSWORD", "shammu@love3")
 
-# --- Helper Functions (Modified for File Session) ---
+# --- Helper Functions (Modified for File Session & New Test) ---
 
 # Function to save Instagrapi session to File
 def save_instagrapi_session_to_file():
@@ -45,12 +34,14 @@ def load_instagrapi_session_from_file():
             with open(SESSION_FILE_PATH, "r") as f:
                 settings = json.load(f)
             cl.set_settings(settings)
-            print("Instagrapi session loaded from file. Now testing account... 💻")
-            if cl.test_account():
+            print("Instagrapi session loaded from file. Now verifying account by API call... 💻")
+            
+            try:
+                cl.get_timeline_feed(amount=1) # Koi bhi simple API call
                 print("Instagrapi session from file is valid. 🔥")
                 return True
-            else:
-                print("Instagrapi session from file invalid. Deleting and retrying. 👊")
+            except (LoginRequired, ClientError) as e: # Agar login error aaya
+                print(f"Instagrapi session from file invalid during API test: {e}. Deleting and retrying. 👊")
                 os.remove(SESSION_FILE_PATH) # Delete invalid file
                 return False
         else:
@@ -68,14 +59,9 @@ if load_instagrapi_session_from_file():
 else:
     print("Starting without a valid session. Need manual login or session file.")
 
-# --- DB-related functions (now we are not using MongoDB for DMs) ---
-# DMs are fetched live, not from DB. You can add local file persistence for DMs if needed.
-# Right now, DM fetching will work live.
-
-# Dummy collections for now, since MongoDB is not being used for DMs
-# If you want to save fetched DMs, you need to implement local file saving for them too.
-dm_collection = None # Dummy
-session_collection = None # Dummy
+# --- Dummy collections for now, since MongoDB is not being used for DMs ---
+dm_collection = None
+session_collection = None
 
 # --- Routes ---
 
@@ -86,8 +72,6 @@ def index():
 
 @app.route('/web_login', methods=['POST'])
 def web_login():
-    # Render pe direct Selenium web login karna complex hai aur recommended nahi.
-    # Ab session file based hai, toh manual file upload ya generate hi option hai.
     return jsonify({
         "status": "error",
         "message": "Web login via browser automation (Selenium) is NOT supported directly on this server. "
@@ -99,15 +83,15 @@ def web_login():
 @app.route('/check_session', methods=['GET'])
 def check_session():
     try:
-        if cl.test_account():
-            return jsonify({"status": "success", "message": "Session is active, bhenchod!"})
-        else:
-            print("Session test failed. Session invalid. 🤬")
-            if os.path.exists(SESSION_FILE_PATH):
-                os.remove(SESSION_FILE_PATH) # Delete invalid file
-            return jsonify({"status": "session_expired", "message": "Session expired! Naya login kar, chutiye!"}), 401
+        cl.get_timeline_feed(amount=1) # Direct API call to check session
+        return jsonify({"status": "success", "message": "Session is active, bhenchod!"})
+    except (LoginRequired, ClientError) as e:
+        print(f"Session check failed during API call: {e}. Session invalid. 🤬")
+        if os.path.exists(SESSION_FILE_PATH):
+            os.remove(SESSION_FILE_PATH) # Delete invalid file
+        return jsonify({"status": "session_expired", "message": "Session expired! Naya login kar, chutiye!"}), 401
     except Exception as e:
-        print(f"Session check encountered an error: {e}. Session invalid. 🤬")
+        print(f"Session check encountered an unexpected error: {e}. Session invalid. 🤬")
         if os.path.exists(SESSION_FILE_PATH):
             os.remove(SESSION_FILE_PATH) # Delete corrupt file
         return jsonify({"status": "session_expired", "message": f"Session check failed: {e}. Naya login kar, chutiye!"}), 401
@@ -116,11 +100,16 @@ def check_session():
 # --- DM Fetching and Sending (No DB persistence for DMs now) ---
 
 def is_logged_in_wrapper():
+    # Ab is wrapper ko bhi API call se check karenge
     try:
-        return cl.test_account()
-    except Exception as e:
-        print(f"Login check wrapper error: {e}")
+        cl.get_timeline_feed(amount=1)
+        return True
+    except (LoginRequired, ClientError):
         return False
+    except Exception as e:
+        print(f"Login check wrapper unexpected error: {e}")
+        return False
+
 
 @app.route('/fetch_all_dms', methods=['GET'])
 def fetch_all_dms():
@@ -128,7 +117,6 @@ def fetch_all_dms():
         return jsonify({"status": "session_expired", "message": "Session expired or not logged in. Login kar pehle, chutiye!"}), 401
     try:
         all_conversations = cl.direct_threads()
-        # DMs ab MongoDB mein save nahi honge! Sirf fetch honge.
         all_dms_data = []
         for thread in all_conversations:
             other_user = next((u for u in thread.users if u.username != USERNAME), None)
@@ -138,12 +126,12 @@ def fetch_all_dms():
 
         return jsonify({
             "status": "success",
-            "message": f"Successfully fetched {len(all_dms_data)} DMs (Not saved to DB).",
+            "message": f"Successfully fetched {len(all_dms_data)} DMs (Not saved locally).",
             "data": all_dms_data
         })
     except Exception as e:
         print(f"Error fetching all DMs: {e}")
-        if "login" in str(e).lower() or "session" in str(e).lower() or not is_logged_in_wrapper():
+        if isinstance(e, (LoginRequired, ClientError)) or not is_logged_in_wrapper():
             if os.path.exists(SESSION_FILE_PATH): os.remove(SESSION_FILE_PATH)
             return jsonify({"status": "session_expired", "message": f"Failed to fetch DMs: Session invalid or expired. Error: {e}"}), 401
         return jsonify({"status": "error", "message": f"Failed to fetch DMs, teri maa ki chut: {e}"}), 500
@@ -154,8 +142,6 @@ def fetch_new_dms():
         return jsonify({"status": "session_expired", "message": "Session expired or not logged in. Login kar pehle, chutiye!"}), 401
     try:
         all_conversations = cl.direct_threads()
-        # Naye DMs track karne ke liye ab koi DB nahi hai. Ye function ab saare DMs hi dega.
-        # Agar tu sirf "new" DMs chahta hai to tujhe khud logic likhni padegi file mein track karne ki.
         new_dms_data = []
         for thread in all_conversations:
             other_user = next((u for u in thread.users if u.username != USERNAME), None)
@@ -165,12 +151,12 @@ def fetch_new_dms():
         
         return jsonify({
             "status": "success",
-            "message": f"Successfully fetched {len(new_dms_data)} DMs (Not saved to DB).",
+            "message": f"Successfully fetched {len(new_dms_data)} DMs (Not saved locally).",
             "data": new_dms_data
         })
     except Exception as e:
         print(f"Error fetching new DMs: {e}")
-        if "login" in str(e).lower() or "session" in str(e).lower() or not is_logged_in_wrapper():
+        if isinstance(e, (LoginRequired, ClientError)) or not is_logged_in_wrapper():
             if os.path.exists(SESSION_FILE_PATH): os.remove(SESSION_FILE_PATH)
             return jsonify({"status": "session_expired", "message": f"Failed to fetch new DMs: Session invalid or expired. Error: {e}"}), 401
         return jsonify({"status": "error", "message": f"Failed to fetch new DMs, teri maa ki chut: {e}"}), 500
@@ -179,7 +165,7 @@ def fetch_new_dms():
 def get_fetched_dms():
     # Ye function ab kuch return nahi karega agar DMs DB mein save nahi ho rahe.
     # Frontend ko empty list dega ya "Not implemented"
-    return jsonify({"status": "info", "message": "DM history not stored in DB, fetch live.", "data": []})
+    return jsonify({"status": "info", "message": "DM history not stored locally, fetch live.", "data": []})
 
 
 @app.route('/send_gc_message', methods=['POST'])
@@ -216,7 +202,7 @@ def send_gc_message():
 
     except Exception as e:
         print(f"Error sending message to GC: {e}")
-        if "login" in str(e).lower() or "session" in str(e).lower() or not is_logged_in_wrapper():
+        if isinstance(e, (LoginRequired, ClientError)) or not is_logged_in_wrapper():
             if os.path.exists(SESSION_FILE_PATH): os.remove(SESSION_FILE_PATH)
             return jsonify({"status": "session_expired", "message": f"Failed to send message: Session invalid or expired. Error: {e}"}), 401
         return jsonify({"status": "error", "message": f"Failed to send message: {e}"}), 500
