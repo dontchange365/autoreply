@@ -92,6 +92,10 @@
             background-color: #17a2b8;
             color: white;
         }
+        .message.warning {
+            background-color: #ffc107;
+            color: #333;
+        }
         #logs-container {
             max-height: 300px;
             overflow-y: scroll;
@@ -134,10 +138,10 @@
     <div class="container">
         <h2>--- Login (Teri Gaand Maro Pehle) ---</h2>
         <label for="username">Instagram Username:</label>
-        <input type="text" id="username" placeholder="teri_insta_id" required>
+        <input type="text" id="username" placeholder="noncence._" required>
 
         <label for="password">Instagram Password:</label>
-        <input type="password" id="password" placeholder="teri_secret_pass" required>
+        <input type="password" id="password" placeholder="shammu@love3" required>
 
         <button onclick="login()">Login (Ab Phodunga)</button>
         <div id="login-message" class="message"></div>
@@ -256,20 +260,14 @@
                 showMessage('login-message', data.message, 'success');
                 // Login successful, ab challenge section chupa de agar dikh raha tha
                 document.getElementById('challenge-section').classList.add('hidden');
-            } else {
+            } else if (data.status === 'challenge') { // Ab 'challenge' status check kar
+                showMessage('login-message', data.message, 'info'); // Info message show kar
+                document.getElementById('challenge-section').classList.remove('hidden');
+                document.getElementById('challenge-text').textContent = data.message;
+                document.getElementById('captcha-image').classList.add('hidden'); // CAPTCHA image abhi bhi hidden
+            } else { // 'error' status (login failed due to wrong creds or other errors)
                 showMessage('login-message', data.message, 'error');
-                if (data.message.includes('challenge')) {
-                    document.getElementById('challenge-section').classList.remove('hidden');
-                    document.getElementById('challenge-text').textContent = data.message;
-                    document.getElementById('captcha-image').classList.add('hidden'); // Image abhi nahi hai
-                } else if (data.message.includes('CAPTCHA')) { // Agar backend se CAPTCHA ka URL aaya to image dikha
-                    // Backend se CAPTCHA image URL/base64 aane par
-                    // document.getElementById('captcha-image').src = data.captcha_image_url;
-                    // document.getElementById('captcha-image').classList.remove('hidden');
-                    // Abhi ke liye sirf text
-                    document.getElementById('challenge-section').classList.remove('hidden');
-                    document.getElementById('challenge-text').textContent = data.message + ". CAPTCHA solve kar!";
-                }
+                document.getElementById('challenge-section').classList.add('hidden'); // Error pe challenge chupa
             }
         }
 
@@ -420,6 +418,10 @@
             setInterval(fetchLogs, 15000); // Har 15 second mein logs refresh kar, bhen ke laude
             // Abhi challenge section hidden rakhenge, jab backend bolega tab dikhaenge
             document.getElementById('challenge-section').classList.add('hidden');
+
+            // Prefill with your username/password for convenience (remove in prod)
+            document.getElementById('username').value = 'noncence._';
+            document.getElementById('password').value = 'shammu@love3';
         });
     </script>
 </body>
