@@ -1,11 +1,11 @@
 Flask
-git+https://github.com/adw0rd/instagrapi.git@master # 'main' ki jagah 'master' kar, bhenchod!
+instagrapi==2.1.5      # Exact version, no compromise!
 pymongo
 gunicorn
 Pillow>=8.1.1
-requests==2.32.3
-PySocks==1.7.1
-pydantic==2.11.5
-pydantic-core==2.33.2
-pycryptodomex==3.23.0
+requests==2.32.3       # Instagrapi dependency
+PySocks==1.7.1         # Instagrapi dependency
+pydantic==2.11.5       # Instagrapi dependency
+pydantic-core==2.33.2  # Instagrapi dependency
+pycryptodomex==3.23.0  # Instagrapi dependency
 setuptools>=65.5.1
