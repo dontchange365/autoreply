@@ -100,19 +100,18 @@ def instagram_login_playwright(username, password, playwright_instance: Playwrig
     """Instagram pe login karega Playwright (Firefox) se, robust checks ke saath."""
     browser = None
     try:
-        browser = playwright_instance.firefox.launch( # <<< Changed to firefox
+        browser = playwright_instance.firefox.launch( # <<< Changed from chromium to firefox
             headless=True, 
             args=[
                 '--no-sandbox', 
                 '--disable-dev-shm-usage',
-                # Firefox ke liye --disable-gpu, --single-process, --disable-setuid-sandbox 
-                # aam taur par zaroori nahi hote ya different hote hain.
             ]
         )
         context = browser.new_context(
             user_agent=get_random_user_agent(),
             viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)},
-            accept_language='en-US,en;q=0.9',
+            # Fix: accept_language ko extra_http_headers mein daala hai
+            extra_http_headers={'Accept-Language': 'en-US,en;q=0.9'} 
         )
         page = context.new_page()
         
@@ -208,7 +207,7 @@ def send_dm_to_group_playwright(group_id, message, playwright_instance: Playwrig
     browser = None
     try:
         browser = playwright_instance.firefox.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage']) # <<< Changed to firefox
-        context = browser.new_context(user_agent=get_random_user_agent(), viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, accept_language='en-US,en;q=0.9')
+        context = browser.new_context(user_agent=get_random_user_agent(), viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, extra_http_headers={'Accept-Language': 'en-US,en;q=0.9'}) # Fix: accept_language
         context.add_cookies(cookies)
         page = context.new_page()
 
@@ -219,7 +218,7 @@ def send_dm_to_group_playwright(group_id, message, playwright_instance: Playwrig
         logger.info(f"Simulating typing for group {group_id}...")
         page.wait_for_timeout(random.uniform(2000, 4000)) # Typing delay
 
-        message_box = page.locator("textarea[placeholder='Message...'], div[contenteditable='true'][role='textbox']").first # More robust selector
+        message_box = page.locator("textarea[placeholder='Message...'], div[contenteditable='true'][role='textbox']").first
         if not message_box.is_visible(timeout=20000): # Increased timeout
             logger.error(f"MADARCHOD! Message box not found for group {group_id}. Maybe access denied/removed from group.")
             log_challenge("GC Access Denied", f"Message box not found for group {group_id}.")
@@ -227,8 +226,8 @@ def send_dm_to_group_playwright(group_id, message, playwright_instance: Playwrig
 
         message_box.fill(message)
         
-        send_button = page.locator("button:has-text('Send'), button[aria-label='Send message']").first # More robust selector
-        send_button.click(timeout=15000) # Increased timeout
+        send_button = page.locator("button:has-text('Send'), button[aria-label='Send message']").first
+        send_button.click(timeout=15000)
 
         logger.info(f"DM sent to group {group_id}: '{message}'")
         return True
@@ -253,7 +252,7 @@ def send_dm_to_user_playwright(username, message, playwright_instance: Playwrigh
     browser = None
     try:
         browser = playwright_instance.firefox.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage']) # <<< Changed to firefox
-        context = browser.new_context(user_agent=get_random_user_agent(), viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, accept_language='en-US,en;q=0.9')
+        context = browser.new_context(user_agent=get_random_user_agent(), viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, extra_http_headers={'Accept-Language': 'en-US,en;q=0.9'}) # Fix: accept_language
         context.add_cookies(cookies)
         page = context.new_page()
 
@@ -321,7 +320,7 @@ def change_group_name_playwright(group_id, new_name, playwright_instance: Playwr
     browser = None
     try:
         browser = playwright_instance.firefox.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage']) # <<< Changed to firefox
-        context = browser.new_context(user_agent=get_random_user_agent(), viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, accept_language='en-US,en;q=0.9')
+        context = browser.new_context(user_agent=get_random_user_agent(), viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, extra_http_headers={'Accept-Language': 'en-US,en;q=0.9'}) # Fix: accept_language
         context.add_cookies(cookies)
         page = context.new_page()
 
@@ -372,7 +371,7 @@ def submit_challenge_response_playwright(response_code, playwright_instance: Pla
     browser = None
     try:
         browser = playwright_instance.firefox.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage']) # <<< Changed to firefox
-        context = browser.new_context(user_agent=get_random_user_agent(), viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, accept_language='en-US,en;q=0.9')
+        context = browser.new_context(user_agent=get_random_user_agent(), viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, extra_http_headers={'Accept-Language': 'en-US,en;q=0.9'}) # Fix: accept_language
         context.add_cookies(cookies)
         page = context.new_page()
 
