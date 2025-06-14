@@ -39,6 +39,12 @@ except Exception as e:
     logger.error(f"MADARCHOD! MongoDB connection failed: {e}")
     exit(1)
 
+# --- Instagram Bot Global Variables (Session Management Database se) ---
+# Note: INSTA_USERNAME_GLOBAL aur INSTA_PASSWORD_GLOBAL ab sirf env vars se load honge.
+# Session cookies DB mein manage honge, in-memory nahi.
+INSTA_USERNAME_GLOBAL = os.getenv("INSTA_USERNAME") 
+INSTA_PASSWORD_GLOBAL = os.getenv("INSTA_PASSWORD")
+
 # --- Helper Functions ---
 def add_random_chutiyapa(text):
     """Text mein random emoji/char pelenge."""
@@ -74,24 +80,57 @@ def log_challenge(challenge_type, description, details=""):
     except Exception as e:
         logger.error(f"MADARCHOD! Failed to log challenge: {e}")
 
+def get_random_user_agent():
+    """Random user agent pelenge, taaki Instagram ko chutiya bana sake."""
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.84 Safari/537.36 OPR/85.0.4341.60",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.3 Safari/605.1.15",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 15_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 226.0.0.12.115",
+        "Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.58 Mobile Safari/537.36 Instagram 225.0.0.0.0",
+        # Firefox specific user agents
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:100.0) Gecko/20100101 Firefox/100.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:100.0) Gecko/20100101 Firefox/100.0",
+        "Mozilla/5.0 (Linux; Android 10; Mobile; rv:100.0) Gecko/100.0 Firefox/100.0",
+    ]
+    return random.choice(user_agents)
+
 # --- Instagram Bot Core Logic ---
 
 def instagram_login_playwright(username, password, playwright_instance: Playwright):
-    """Instagram pe login karega Playwright se."""
+    """Instagram pe login karega Playwright (Firefox) se, robust checks ke saath."""
     browser = None
     try:
-        browser = playwright_instance.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
-        context = browser.new_context()
+        # Firefox launch kar
+        browser = playwright_instance.firefox.launch( # <<< Changed from chromium to firefox
+            headless=True, 
+            args=[
+                '--no-sandbox', 
+                '--disable-dev-shm-usage',
+                # Firefox ke liye --disable-gpu, --single-process, --disable-setuid-sandbox 
+                # aam taur par zaroori nahi hote ya different hote hain.
+                # '--disable-gpu',
+                # '--single-process',
+                # '--disable-setuid-sandbox',
+                # '--disable-features=site-per-process' # Chromium specific
+            ]
+        )
+        context = browser.new_context(
+            user_agent=get_random_user_agent(),
+            viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)},
+            accept_language='en-US,en;q=0.9',
+        )
         page = context.new_page()
         
-        page.goto("https://www.instagram.com/accounts/login/")
-        page.wait_for_selector("input[name='username']", timeout=20000)
+        page.goto("https://www.instagram.com/accounts/login/", wait_until="networkidle")
+        page.wait_for_selector("input[name='username']", timeout=30000) # Increased timeout
         
         page.fill("input[name='username']", username)
         page.fill("input[name='password']", password)
         page.click("button[type='submit']")
         
-        page.wait_for_timeout(random.uniform(5000, 10000)) # Increased wait after submit
+        page.wait_for_timeout(random.uniform(7000, 15000)) # Increased wait after submit
 
         # --- ASLI LOGIN CONFIRMATION CHUTIYAPA ---
         if "login_challenge" in page.url or "checkpoint" in page.url or "oauth" in page.url:
@@ -109,10 +148,17 @@ def instagram_login_playwright(username, password, playwright_instance: Playwrig
                 log_challenge("Login Stuck", "Still on login page after submission, no clear error.")
                 return False, "stuck_on_login", None
 
+        # Home feed ke common element ko dhundh
         try:
-            home_feed_element = page.locator("svg[aria-label='Home']").first # Home icon
-            home_feed_element.wait_for(state='visible', timeout=15000) # 15 sec tak wait kar for home element
-            logger.info(f"Successfully logged in as {username}, bhen ke laude! Home feed element found.")
+            home_feed_element = page.locator("svg[aria-label='Home'], svg[aria-label='Profile'], svg[aria-label='New post']").first
+            home_feed_element.wait_for(state='visible', timeout=20000) # 20 sec tak wait kar for home element
+            
+            if "instagram.com/accounts/" in page.url or "instagram.com/challenge/" in page.url:
+                 logger.error("Login Failed: Redirected to challenge/account page despite home element check.")
+                 log_challenge("Login Blocked Redirect", f"Redirected to {page.url} after login.")
+                 return False, "blocked_redirect", None
+
+            logger.info(f"Successfully logged in as {username}, bhen ke laude! Home feed element found, URL: {page.url}.")
             cookies = context.cookies()
             return True, "success", cookies
         except PlaywrightTimeoutError:
@@ -139,7 +185,7 @@ def instagram_login_playwright(username, password, playwright_instance: Playwrig
 def dismiss_popups_playwright(page):
     """Automation detection ya cookies ke pop-ups ki gaand marega."""
     try:
-        page.locator("button:has-text('Allow all cookies')").click(timeout=5000)
+        page.locator("button:has-text('Allow all cookies')").click(timeout=10000)
         logger.info("Cookies consent dismissed.")
     except PlaywrightTimeoutError:
         pass
@@ -147,7 +193,7 @@ def dismiss_popups_playwright(page):
         logger.warning(f"Failed to dismiss cookie popup: {e}")
 
     try:
-        page.locator("button:has-text('Not Now')").click(timeout=5000)
+        page.locator("button:has-text('Not Now')").click(timeout=10000)
         logger.info("'Not Now' for notifications dismissed.")
     except PlaywrightTimeoutError:
         pass
@@ -155,7 +201,7 @@ def dismiss_popups_playwright(page):
         logger.warning(f"Failed to dismiss notification popup: {e}")
 
     try:
-        page.locator("button:has-text('Dismiss'), button:has-text('OK'), button:has-text('I Understand'), [aria-label='Close'], svg[aria-label='Close']").click(timeout=5000)
+        page.locator("button:has-text('Dismiss'), button:has-text('OK'), button:has-text('I Understand'), [aria-label='Close'], svg[aria-label='Close']").click(timeout=10000)
         logger.info("Automation/general dismissible popup dismissed.")
     except PlaywrightTimeoutError:
         pass
@@ -169,28 +215,28 @@ def send_dm_to_group_playwright(group_id, message, playwright_instance: Playwrig
     """Specific group ID pe DM pelta hai."""
     browser = None
     try:
-        browser = playwright_instance.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
-        context = browser.new_context()
+        browser = playwright_instance.firefox.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage']) # <<< Changed to firefox
+        context = browser.new_context(user_agent=get_random_user_agent(), viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, accept_language='en-US,en;q=0.9')
         context.add_cookies(cookies)
         page = context.new_page()
 
-        page.goto(f"https://www.instagram.com/direct/t/{group_id}/")
-        page.wait_for_timeout(random.uniform(3000, 6000))
+        page.goto(f"https://www.instagram.com/direct/t/{group_id}/", wait_until="networkidle")
+        page.wait_for_timeout(random.uniform(5000, 10000)) # Increased wait
         dismiss_popups_playwright(page)
 
         logger.info(f"Simulating typing for group {group_id}...")
-        page.wait_for_timeout(random.uniform(1000, 3000)) # Typing delay
+        page.wait_for_timeout(random.uniform(2000, 4000)) # Typing delay
 
-        message_box = page.locator("textarea[placeholder='Message...']")
-        if not message_box.is_visible(timeout=15000): # Increased timeout
+        message_box = page.locator("textarea[placeholder='Message...'], div[contenteditable='true'][role='textbox']").first # More robust selector
+        if not message_box.is_visible(timeout=20000): # Increased timeout
             logger.error(f"MADARCHOD! Message box not found for group {group_id}. Maybe access denied/removed from group.")
             log_challenge("GC Access Denied", f"Message box not found for group {group_id}.")
             return False
 
         message_box.fill(message)
         
-        send_button = page.locator("button:has-text('Send')")
-        send_button.click()
+        send_button = page.locator("button:has-text('Send'), button[aria-label='Send message']").first # More robust selector
+        send_button.click(timeout=15000) # Increased timeout
 
         logger.info(f"DM sent to group {group_id}: '{message}'")
         return True
@@ -214,49 +260,50 @@ def send_dm_to_user_playwright(username, message, playwright_instance: Playwrigh
     """Specific user ko DM pelta hai."""
     browser = None
     try:
-        browser = playwright_instance.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
-        context = browser.new_context()
+        browser = playwright_instance.firefox.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage']) # <<< Changed to firefox
+        context = browser.new_context(user_agent=get_random_user_agent(), viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, accept_language='en-US,en;q=0.9')
         context.add_cookies(cookies)
         page = context.new_page()
 
-        page.goto("https://www.instagram.com/direct/inbox/")
-        page.wait_for_timeout(random.uniform(3000, 6000))
+        page.goto("https://www.instagram.com/direct/inbox/", wait_until="networkidle")
+        page.wait_for_timeout(random.uniform(5000, 10000)) # Increased wait
         dismiss_popups_playwright(page)
 
-        new_message_button = page.locator("svg[aria-label='New message']")
-        new_message_button.click(timeout=15000)
-        page.wait_for_timeout(random.uniform(2000, 4000))
-
-        search_input = page.locator("input[placeholder='Search']")
-        search_input.fill(username)
+        new_message_button = page.locator("svg[aria-label='New message'], button[aria-label='New message']").first
+        new_message_button.click(timeout=20000)
         page.wait_for_timeout(random.uniform(3000, 5000))
 
-        # Updated locator for user search result (more robust)
-        user_result_selector = f"div[role='button'][role='link'][href*='/{username}/'], div[role='button']:has-text('{username}')"
+        search_input = page.locator("input[placeholder='Search'], input[aria-label='Search']").first
+        search_input.fill(username)
+        page.wait_for_timeout(random.uniform(3000, 7000))
+
+        user_result_selector = (
+            f"a[role='link'][href*='/{username}/'], "
+            f"div[role='button']:has-text('{username}'), "
+            "div[role='button'][aria-selected='false']"
+        )
         first_user_result = page.locator(user_result_selector).first
 
-        if not first_user_result.is_visible(timeout=15000): # Increased timeout for visibility
-             first_user_result = page.locator("div[role='button'][aria-selected='false']").first
-             if not first_user_result.is_visible(timeout=15000):
-                logger.error(f"MADARCHOD! User '{username}' not found in search results or unselectable.")
-                log_challenge("DM User Failed", f"User '{username}' not found/selectable.")
-                return False
+        if not first_user_result.is_visible(timeout=20000): # Increased timeout
+            logger.error(f"MADARCHOD! User '{username}' not found in search results or unselectable.")
+            log_challenge("DM User Failed", f"User '{username}' not found/selectable.")
+            return False
 
-        first_user_result.click(timeout=10000)
-        page.wait_for_timeout(random.uniform(1000, 2000))
-
-        chat_button = page.locator("button:has-text('Chat'), button:has-text('Next')")
-        chat_button.click(timeout=15000)
+        first_user_result.click(timeout=15000)
         page.wait_for_timeout(random.uniform(2000, 4000))
+        
+        chat_button = page.locator("button:has-text('Chat'), button:has-text('Next')").first
+        chat_button.click(timeout=15000)
+        page.wait_for_timeout(random.uniform(3000, 5000))
 
-        message_box = page.locator("textarea[placeholder='Message...']")
-        if not message_box.is_visible(timeout=15000): # Increased timeout
-            logger.error(f"MADARCHOD! Message box not found for user {username}. Maybe chat didn't open.")
+        message_box = page.locator("textarea[placeholder='Message...'], div[contenteditable='true'][role='textbox']").first
+        if not message_box.is_visible(timeout=20000): # Increased timeout
+            logger.error(f"MADARCHOD! Message box not found for user {username}. Maybe chat didn't open or was blocked.")
             log_challenge("DM User Failed", f"Message box not found for user {username}.")
             return False
 
         message_box.fill(message)
-        send_button = page.locator("button:has-text('Send')")
+        send_button = page.locator("button:has-text('Send'), button[aria-label='Send message']").first
         send_button.click()
 
         logger.info(f"DM sent to user {username}: '{message}'")
@@ -281,33 +328,33 @@ def change_group_name_playwright(group_id, new_name, playwright_instance: Playwr
     """Group chat ka naam badlega."""
     browser = None
     try:
-        browser = playwright_instance.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
-        context = browser.new_context()
+        browser = playwright_instance.firefox.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage']) # <<< Changed to firefox
+        context = browser.new_context(user_agent=get_random_user_agent(), viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, accept_language='en-US,en;q=0.9')
         context.add_cookies(cookies)
         page = context.new_page()
 
-        page.goto(f"https://www.instagram.com/direct/t/{group_id}/")
-        page.wait_for_timeout(random.uniform(3000, 6000))
+        page.goto(f"https://www.instagram.com/direct/t/{group_id}/", wait_until="networkidle")
+        page.wait_for_timeout(random.uniform(5000, 10000)) # Increased wait
         dismiss_popups_playwright(page)
 
-        info_button = page.locator("a[href*='/direct/t/'][href*='/info/']")
-        if not info_button.is_visible(timeout=15000):
+        info_button = page.locator("a[href*='/direct/t/'][href*='/info/'], svg[aria-label='Details']").first
+        if not info_button.is_visible(timeout=20000): # Increased timeout
             logger.error(f"MADARCHOD! Group info button not found for group {group_id}. Maybe access denied.")
             log_challenge("GC Name Change Error", f"Group info button not found for group {group_id}.")
             return False
         
         info_button.click()
-        page.wait_for_timeout(random.uniform(3000, 5000))
+        page.wait_for_timeout(random.uniform(3000, 7000))
 
-        edit_name_field = page.locator("input[placeholder='Group name']")
-        if not edit_name_field.is_visible(timeout=15000):
+        edit_name_field = page.locator("input[placeholder='Group name'], input[aria-label='Group name']").first
+        if not edit_name_field.is_visible(timeout=20000): # Increased timeout
             logger.error(f"MADARCHOD! Group name edit field not found for group {group_id}.")
             log_challenge("GC Name Change Error", f"Group name edit field not found for group {group_id}.")
             return False
 
         edit_name_field.fill(new_name)
         
-        save_button = page.locator("button:has-text('Done'), button:has-text('Save')")
+        save_button = page.locator("button:has-text('Done'), button:has-text('Save'), button[aria-label='Save']").first
         save_button.click()
 
         logger.info(f"Group {group_id} name changed to: '{new_name}'")
@@ -332,26 +379,26 @@ def submit_challenge_response_playwright(response_code, playwright_instance: Pla
     """OTP/CAPTCHA response handle karega."""
     browser = None
     try:
-        browser = playwright_instance.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
-        context = browser.new_context()
+        browser = playwright_instance.firefox.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage']) # <<< Changed to firefox
+        context = browser.new_context(user_agent=get_random_user_agent(), viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, accept_language='en-US,en;q=0.9')
         context.add_cookies(cookies)
         page = context.new_page()
 
-        page.goto("https://www.instagram.com/challenge/")
-        page.wait_for_timeout(random.uniform(2000, 4000))
+        page.goto("https://www.instagram.com/challenge/", wait_until="networkidle")
+        page.wait_for_timeout(random.uniform(3000, 5000))
 
-        input_field = page.locator("input[aria-label='security code'], input[name='security_code'], input[placeholder='Security Code'], input[aria-label='Confirmation Code'], input[name='verificationCode'], input[type='text']")
-        if not input_field.is_visible(timeout=15000):
+        input_field = page.locator("input[aria-label='security code'], input[name='security_code'], input[placeholder='Security Code'], input[aria-label='Confirmation Code'], input[name='verificationCode'], input[type='text'], input[type='number']").first
+        if not input_field.is_visible(timeout=20000): # Increased timeout
             logger.error("MADARCHOD! Challenge input field not found on page.")
             log_challenge("Challenge Submit Error", "Input field for challenge not found.")
             return False, None
 
         input_field.fill(response_code)
         
-        submit_button = page.locator("button:has-text('Confirm'), button[type='submit'], button:has-text('Submit'), button:has-text('Verify')")
+        submit_button = page.locator("button:has-text('Confirm'), button[type='submit'], button:has-text('Submit'), button:has-text('Verify')").first
         submit_button.click()
         
-        page.wait_for_timeout(random.uniform(5000, 10000))
+        page.wait_for_timeout(random.uniform(7000, 15000))
 
         if "login_challenge" in page.url or "checkpoint" in page.url or "oauth" in page.url:
             logger.warning("Challenge solution failed or new challenge arrived.")
@@ -443,6 +490,8 @@ def login_route():
                 return jsonify({"status": "error", "message": "Login stuck: Still on login/challenge page. Try again or check logs."}), 500
             elif msg == "blocked_after_login":
                 return jsonify({"status": "error", "message": "Login blocked: Home page not reached. Account flagged?"}), 500
+            elif msg == "blocked_redirect":
+                return jsonify({"status": "error", "message": "Login blocked: Redirected to non-home page after login. Account flagged?"}), 500
             else:
                 return jsonify({"status": "error", "message": f"Login failed: {msg}"}), 500
 
@@ -529,6 +578,8 @@ def start_spam_campaign_route():
     campaigns_collection.insert_one(campaign_settings)
     logger.info(f"Campaign '{campaign_settings['campaign_name']}' started for group {group_id}")
 
+    # NOTE: For production, use Celery/RQ for long-running tasks!
+    
     message_counter = 0
     for i in range(num_messages):
         random_message = random.choice(messages_list)
@@ -544,7 +595,6 @@ def start_spam_campaign_route():
             time.sleep(5)
             log_challenge("Message Send Skipped", f"Failed to send message {i+1} to group {group_id}. Skipping.")
         
-        # Delay (always happens regardless of send status)
         delay_time = random.uniform(min_delay, max_delay)
         logger.info(f"Waiting for {delay_time:.2f} seconds...")
         time.sleep(delay_time)
@@ -607,12 +657,11 @@ def start_dm_to_user_campaign_route():
             with sync_playwright() as p:
                 sent = send_dm_to_user_playwright(username_target, final_message, p, cookies)
             
-            if not sent: # Message failed
+            if not sent:
                 logger.warning(f"Message {i+1} failed for user {username_target}. Waiting 5 secs and skipping...")
                 time.sleep(5)
                 log_challenge("Message Send Skipped User", f"Failed to send message {i+1} to user {username_target}. Skipping.")
             
-            # Delay (always happens regardless of send status)
             delay_time = random.uniform(min_delay, max_delay)
             logger.info(f"Waiting for {delay_time:.2f} seconds...")
             time.sleep(delay_time)
