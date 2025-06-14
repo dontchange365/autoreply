@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NOBI BOT: Instagram Controller</title>
+    <style>
+        /* CSS ka chutiyapa yahin pel */
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #2c2c2c; /* Dark background */
+            color: #eee;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            background-color: #3a3a3a;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
+            width: 100%;
+            max-width: 500px;
+            margin-bottom: 20px;
+            border: 1px solid #555;
+        }
+        h1 {
+            color: #ff4500; /* Orange color */
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 2em;
+        }
+        h2 {
+            color: #ff6347;
+            margin-top: 30px;
+            border-bottom: 1px solid #ff6347;
+            padding-bottom: 5px;
+            text-align: center;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #ccc;
+        }
+        input[type="text"],
+        input[type="password"],
+        input[type="number"],
+        textarea,
+        select {
+            width: calc(100% - 20px);
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #555;
+            border-radius: 5px;
+            background-color: #4a4a4a;
+            color: #eee;
+            font-size: 1em;
+        }
+        button {
+            background-color: #ff4500;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1.1em;
+            width: 100%;
+            margin-top: 10px;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #e03c00;
+        }
+        .message {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .message.success {
+            background-color: #28a745;
+            color: white;
+        }
+        .message.error {
+            background-color: #dc3545;
+            color: white;
+        }
+        .message.info {
+            background-color: #17a2b8;
+            color: white;
+        }
+        #logs-container {
+            max-height: 300px;
+            overflow-y: scroll;
+            border: 1px solid #555;
+            padding: 10px;
+            background-color: #4a4a4a;
+            border-radius: 5px;
+            margin-top: 15px;
+        }
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 5px;
+            border-bottom: 1px dashed #666;
+            word-wrap: break-word; /* Long lines wrap */
+        }
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        .log-entry.error-log {
+            color: #ff8a80; /* Light red for errors */
+        }
+        .log-entry.challenge-log {
+            color: #ffb74d; /* Orange for challenges */
+        }
+        .hidden {
+            display: none;
+        }
+        #challenge-section img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 15px auto;
+            border: 1px solid #555;
+        }
+    </style>
+</head>
+<body>
+    <h1>😈 NOBI BOT: Instagram Destroyer 🤬</h1>
+
+    <div class="container">
+        <h2>--- Login (Teri Gaand Maro Pehle) ---</h2>
+        <label for="username">Instagram Username:</label>
+        <input type="text" id="username" placeholder="teri_insta_id" required>
+
+        <label for="password">Instagram Password:</label>
+        <input type="password" id="password" placeholder="teri_secret_pass" required>
+
+        <button onclick="login()">Login (Ab Phodunga)</button>
+        <div id="login-message" class="message"></div>
+    </div>
+
+    <div id="challenge-section" class="container hidden">
+        <h2>--- Challenge Aa Gaya, Saale! ---</h2>
+        <p id="challenge-text">OTP/CAPTCHA maanga hai. Jaldi daal, bhen ke laude!</p>
+        <img id="captcha-image" class="hidden" alt="CAPTCHA Image">
+        <label for="challenge-response">Response:</label>
+        <input type="text" id="challenge-response" placeholder="OTP ya CAPTCHA answer" required>
+        <button onclick="submitChallengeResponse()">Submit Challenge</button>
+        <div id="challenge-message" class="message"></div>
+    </div>
+
+    <div class="container">
+        <h2>--- Group Chat Manager (Gaand Faado) ---</h2>
+        <label for="group-id">Group ID (Madarchod ID):</label>
+        <input type="text" id="group-id" placeholder="Copy kar URL se" required>
+
+        <label for="group-name">Group Name (Tere Reference Ke Liye):</label>
+        <input type="text" id="group-name" placeholder="Dost ki gaand maro group" required>
+
+        <button onclick="addGroup()">Add Group</button>
+        <div id="group-message" class="message"></div>
+
+        <h3>--- Available Groups (Jinpe Gaand Marni Hai) ---</h3>
+        <select id="select-group">
+            <option value="">Select a group to spam...</option>
+        </select>
+        <button onclick="fetchGroups()">Refresh Groups</button>
+    </div>
+
+    <div class="container">
+        <h2>--- DM Spammer (Pelne Wala System) ---</h2>
+        <label for="num-messages">Kitne Messages Pelne Hain?</label>
+        <input type="number" id="num-messages" value="10" min="1" required>
+
+        <label for="min-delay">Min Delay (Seconds):</label>
+        <input type="number" id="min-delay" value="2" min="1" step="0.1" required>
+
+        <label for="max-delay">Max Delay (Seconds):</label>
+        <input type="number" id="max-delay" value="5" min="1" step="0.1" required>
+
+        <label for="messages-text">Messages (Comma se Separate Kar, Bhen Ke Laude):</label>
+        <textarea id="messages-text" rows="5" placeholder="hi saale, kya hal hai, teri maa ki chut"></textarea>
+
+        <button onclick="startSpamCampaign()">Start DM Campaign (Ab Asli Gaand Phadunga)</button>
+        <div id="spam-message" class="message"></div>
+    </div>
+
+    <div class="container">
+        <h2>--- Group Name Changer (Gaand Badal Dunga) ---</h2>
+        <label for="change-group-id">Group ID (Jiski Gaand Badalne Hai):</label>
+        <input type="text" id="change-group-id" placeholder="Copy kar URL se" required>
+
+        <label for="new-group-name">Naya Group Name (Ab Kiska Naam Pelna Hai):</label>
+        <input type="text" id="new-group-name" placeholder="Naya Naam Jo Pasand Aaye" required>
+
+        <button onclick="changeGroupName()">Change Group Name</button>
+        <div id="name-change-message" class="message"></div>
+    </div>
+
+    <div class="container">
+        <h2>--- Logs (Dekh Kya Chutiyapa Ho Raha Hai) ---</h2>
+        <div id="logs-container">
+            </div>
+        <button onclick="fetchLogs()">Refresh Logs</button>
+    </div>
+
+    <script>
+        /* JavaScript ka chutiyapa yahin pel */
+        const backendUrl = window.location.origin; // Same origin as the Flask app
+
+        async function postData(url, data) {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            });
+            return response.json();
+        }
+
+        async function fetchData(url) {
+            const response = await fetch(url);
+            return response.json();
+        }
+
+        function showMessage(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = `message ${type}`;
+            setTimeout(() => {
+                element.textContent = '';
+                element.className = 'message';
+            }, 5000); // 5 seconds baad gaayab kar
+        }
+
+        // --- Login Function ---
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const messageDiv = document.getElementById('login-message');
+
+            if (!username || !password) {
+                showMessage('login-message', 'OYE BSDK! Username aur password de!', 'error');
+                return;
+            }
+
+            showMessage('login-message', 'Login kar raha hoon, ruk ja madarchod...', 'info');
+            const data = await postData(`${backendUrl}/login`, { username, password });
+            
+            if (data.status === 'success') {
+                showMessage('login-message', data.message, 'success');
+                // Login successful, ab challenge section chupa de agar dikh raha tha
+                document.getElementById('challenge-section').classList.add('hidden');
+            } else {
+                showMessage('login-message', data.message, 'error');
+                if (data.message.includes('challenge')) {
+                    document.getElementById('challenge-section').classList.remove('hidden');
+                    document.getElementById('challenge-text').textContent = data.message;
+                    document.getElementById('captcha-image').classList.add('hidden'); // Image abhi nahi hai
+                } else if (data.message.includes('CAPTCHA')) { // Agar backend se CAPTCHA ka URL aaya to image dikha
+                    // Backend se CAPTCHA image URL/base64 aane par
+                    // document.getElementById('captcha-image').src = data.captcha_image_url;
+                    // document.getElementById('captcha-image').classList.remove('hidden');
+                    // Abhi ke liye sirf text
+                    document.getElementById('challenge-section').classList.remove('hidden');
+                    document.getElementById('challenge-text').textContent = data.message + ". CAPTCHA solve kar!";
+                }
+            }
+        }
+
+        // --- Submit Challenge Response ---
+        async function submitChallengeResponse() {
+            const responseCode = document.getElementById('challenge-response').value;
+            const messageDiv = document.getElementById('challenge-message');
+
+            if (!responseCode) {
+                showMessage('challenge-message', 'MADARCHOD! OTP ya CAPTCHA ka answer de!', 'error');
+                return;
+            }
+
+            showMessage('challenge-message', 'Challenge submit kar raha hoon...', 'info');
+            const data = await postData(`${backendUrl}/submit_challenge_response`, { response_code: responseCode });
+
+            if (data.status === 'success') {
+                showMessage('challenge-message', data.message, 'success');
+                document.getElementById('challenge-section').classList.add('hidden'); // Challenge solve ho gaya, chupa de
+            } else {
+                showMessage('challenge-message', data.message, 'error');
+            }
+        }
+
+        // --- Add Group Function ---
+        async function addGroup() {
+            const groupId = document.getElementById('group-id').value;
+            const groupName = document.getElementById('group-name').value;
+            const messageDiv = document.getElementById('group-message');
+
+            if (!groupId || !groupName) {
+                showMessage('group-message', 'MADARCHOD! Group ID aur Naam de!', 'error');
+                return;
+            }
+
+            showMessage('group-message', 'Group add kar raha hoon...', 'info');
+            const data = await postData(`${backendUrl}/add_group`, { group_id: groupId, group_name: groupName });
+            
+            if (data.status === 'success' || data.status === 'warning') {
+                showMessage('group-message', data.message, data.status);
+                fetchGroups(); // List refresh kar
+            } else {
+                showMessage('group-message', data.message, 'error');
+            }
+        }
+
+        // --- Fetch Groups Function ---
+        async function fetchGroups() {
+            const selectGroup = document.getElementById('select-group');
+            selectGroup.innerHTML = '<option value="">Select a group to spam...</option>'; // Clear existing
+            const data = await fetchData(`${backendUrl}/get_groups`);
+
+            if (data.status === 'success') {
+                data.groups.forEach(group => {
+                    const option = document.createElement('option');
+                    option.value = group.group_id;
+                    option.textContent = `${group.group_name} (${group.group_id})`;
+                    selectGroup.appendChild(option);
+                });
+                showMessage('group-message', 'Groups fetch ho gaye!', 'info');
+            } else {
+                showMessage('group-message', data.message, 'error');
+            }
+        }
+
+        // --- Start Spam Campaign Function ---
+        async function startSpamCampaign() {
+            const selectedGroupId = document.getElementById('select-group').value;
+            const numMessages = document.getElementById('num-messages').value;
+            const minDelay = document.getElementById('min-delay').value;
+            const maxDelay = document.getElementById('max-delay').value;
+            const messagesText = document.getElementById('messages-text').value;
+            const messageDiv = document.getElementById('spam-message');
+
+            if (!selectedGroupId || !numMessages || !minDelay || !maxDelay || !messagesText) {
+                showMessage('spam-message', 'OYE BSDK! Saara data fill kar pehle!', 'error');
+                return;
+            }
+
+            showMessage('spam-message', 'Spamming campaign shuru kar raha hoon...', 'info');
+            const data = await postData(`${backendUrl}/start_spam_campaign`, {
+                group_id: selectedGroupId,
+                num_messages: parseInt(num_messages),
+                min_delay: parseFloat(min_delay),
+                max_delay: parseFloat(max_delay),
+                messages: messagesText
+            });
+
+            if (data.status === 'success') {
+                showMessage('spam-message', data.message, 'success');
+            } else {
+                showMessage('spam-message', data.message, 'error');
+            }
+        }
+
+        // --- Change Group Name Function ---
+        async function changeGroupName() {
+            const groupId = document.getElementById('change-group-id').value;
+            const newName = document.getElementById('new-group-name').value;
+            const messageDiv = document.getElementById('name-change-message');
+
+            if (!groupId || !newName) {
+                showMessage('name-change-message', 'MADARCHOD! Group ID aur Naya Naam de!', 'error');
+                return;
+            }
+
+            showMessage('name-change-message', 'Group ka naam badal raha hoon...', 'info');
+            const data = await postData(`${backendUrl}/change_gc_name`, { group_id: groupId, new_name: newName });
+
+            if (data.status === 'success') {
+                showMessage('name-change-message', data.message, 'success');
+            } else {
+                showMessage('name-change-message', data.message, 'error');
+            }
+        }
+
+        // --- Fetch Logs Function ---
+        async function fetchLogs() {
+            const logsContainer = document.getElementById('logs-container');
+            logsContainer.innerHTML = ''; // Clear existing logs
+            const data = await fetchData(`${backendUrl}/get_logs`);
+
+            if (data.status === 'success') {
+                data.logs.forEach(log => {
+                    const logEntry = document.createElement('div');
+                    logEntry.className = 'log-entry';
+                    if (log.type === 'CHALLENGE') {
+                        logEntry.classList.add('challenge-log');
+                    } else if (log.type.includes('Failed') || log.type.includes('Error')) {
+                        logEntry.classList.add('error-log');
+                    }
+                    logEntry.textContent = `[${log.timestamp}] [${log.type}] ${log.description} ${log.details ? ': ' + log.details : ''}`;
+                    logsContainer.appendChild(logEntry);
+                });
+                logsContainer.scrollTop = logsContainer.scrollHeight; // Scroll to bottom
+            } else {
+                const errorLog = document.createElement('div');
+                errorLog.className = 'log-entry error-log';
+                errorLog.textContent = `MADARCHOD! Logs fetch karne mein chutiyapa: ${data.message}`;
+                logsContainer.appendChild(errorLog);
+            }
+        }
+
+        // Initial fetch for groups and logs when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchGroups();
+            fetchLogs();
+            setInterval(fetchLogs, 15000); // Har 15 second mein logs refresh kar, bhen ke laude
+            // Abhi challenge section hidden rakhenge, jab backend bolega tab dikhaenge
+            document.getElementById('challenge-section').classList.add('hidden');
+        });
+    </script>
+</body>
+</html>
