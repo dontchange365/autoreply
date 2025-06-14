@@ -40,8 +40,6 @@ except Exception as e:
     exit(1)
 
 # --- Instagram Bot Global Variables (Session Management Database se) ---
-# Note: INSTA_USERNAME_GLOBAL aur INSTA_PASSWORD_GLOBAL ab sirf env vars se load honge.
-# Session cookies DB mein manage honge, in-memory nahi.
 INSTA_USERNAME_GLOBAL = os.getenv("INSTA_USERNAME") 
 INSTA_PASSWORD_GLOBAL = os.getenv("INSTA_PASSWORD")
 
@@ -102,18 +100,13 @@ def instagram_login_playwright(username, password, playwright_instance: Playwrig
     """Instagram pe login karega Playwright (Firefox) se, robust checks ke saath."""
     browser = None
     try:
-        # Firefox launch kar
-        browser = playwright_instance.firefox.launch( # <<< Changed from chromium to firefox
+        browser = playwright_instance.firefox.launch( # <<< Changed to firefox
             headless=True, 
             args=[
                 '--no-sandbox', 
                 '--disable-dev-shm-usage',
                 # Firefox ke liye --disable-gpu, --single-process, --disable-setuid-sandbox 
                 # aam taur par zaroori nahi hote ya different hote hain.
-                # '--disable-gpu',
-                # '--single-process',
-                # '--disable-setuid-sandbox',
-                # '--disable-features=site-per-process' # Chromium specific
             ]
         )
         context = browser.new_context(
@@ -124,13 +117,13 @@ def instagram_login_playwright(username, password, playwright_instance: Playwrig
         page = context.new_page()
         
         page.goto("https://www.instagram.com/accounts/login/", wait_until="networkidle")
-        page.wait_for_selector("input[name='username']", timeout=30000) # Increased timeout
+        page.wait_for_selector("input[name='username']", timeout=30000)
         
         page.fill("input[name='username']", username)
         page.fill("input[name='password']", password)
         page.click("button[type='submit']")
         
-        page.wait_for_timeout(random.uniform(7000, 15000)) # Increased wait after submit
+        page.wait_for_timeout(random.uniform(5000, 10000)) # Increased wait after submit
 
         # --- ASLI LOGIN CONFIRMATION CHUTIYAPA ---
         if "login_challenge" in page.url or "checkpoint" in page.url or "oauth" in page.url:
@@ -148,7 +141,6 @@ def instagram_login_playwright(username, password, playwright_instance: Playwrig
                 log_challenge("Login Stuck", "Still on login page after submission, no clear error.")
                 return False, "stuck_on_login", None
 
-        # Home feed ke common element ko dhundh
         try:
             home_feed_element = page.locator("svg[aria-label='Home'], svg[aria-label='Profile'], svg[aria-label='New post']").first
             home_feed_element.wait_for(state='visible', timeout=20000) # 20 sec tak wait kar for home element
@@ -672,7 +664,7 @@ def start_dm_to_user_campaign_route():
     )
     logger.info(f"Campaign '{campaign_settings['campaign_name']}' completed, bhen ke laude!")
     
-    return jsonify({"status": "success", "message": "DM to user campaign shuru ho gaya, ab dek देखते है kya gaand marti hai!"})
+    return jsonify({"status": "success", "message": "DM to user campaign shuru ho गया, ab dek देखते है kya gaand marti hai!"})
 
 
 @app.route("/change_gc_name", methods=["POST"])
