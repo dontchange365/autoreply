@@ -165,13 +165,14 @@
             height: 100%;
             background-color: rgba(0, 0, 0, 0.7); /* Dark semi-transparent background */
             display: flex;
+            flex-direction: column; /* Changed to column to stack spinner and text */
             justify-content: center;
             align-items: center;
             z-index: 1000; /* Spinner will be on top */
         }
         .overlay p {
             color: white;
-            margin-left: 15px;
+            margin-top: 15px; /* Added margin-top */
             font-size: 1.2em;
         }
     </style>
@@ -197,7 +198,7 @@
     </div>
 
     <div id="challenge-section" class="container hidden">
-        <h2>--- Challenge Aa Gaya, Saale! ---</h2>
+        <h2>--- Challenge Aa गया, Saale! ---</h2>
         <p id="challenge-text">OTP/CAPTCHA maanga hai. Jaldi daal, bhen ke laude!</p>
         <img id="captcha-image" class="hidden" alt="CAPTCHA Image">
         <label for="challenge-response">Response:</label>
@@ -374,14 +375,18 @@
 
         async function checkLoginStatus() {
             console.log("Frontend Debug: Checking login status from backend.");
+            // showLoading("Login status check kar raha hoon..."); // Spinner dikha
             const data = await fetchData(`${backendUrl}/check_login_status`);
             console.log("Frontend Debug: Login status response:", data);
-
+            
             if (data.status === 'logged_in') {
                 updateLoginUI(true, data.username);
+                showMessage('login-message', `Session found for ${data.username}!`, 'info'); // Status dikha
             } else {
                 updateLoginUI(false);
+                showMessage('login-message', 'Koi active session nahi mila. Login kar, bhen ke laude!', 'warning'); // Status dikha
             }
+            // hideLoading(); // Spinner hata
         }
 
         function toggleSpamTarget() {
