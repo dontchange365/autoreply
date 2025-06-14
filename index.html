@@ -1,756 +1,720 @@
-# main.py
-import os
-import time
-import random
-import logging
-import json
-from flask import Flask, request, jsonify
-from pymongo import MongoClient
-from dotenv import load_dotenv
-from playwright.sync_api import sync_playwright, Playwright, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NOBI BOT: Instagram Controller</title>
+    <style>
+        /* CSS ka chutiyapa yahin pel */
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #2c2c2c; /* Dark background */
+            color: #eee;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            background-color: #3a3a3a;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
+            width: 100%;
+            max-width: 500px;
+            margin-bottom: 20px;
+            border: 1px solid #555;
+        }
+        h1 {
+            color: #ff4500; /* Orange color */
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 2em;
+        }
+        h2 {
+            color: #ff6347;
+            margin-top: 30px;
+            border-bottom: 1px solid #ff6347;
+            padding-bottom: 5px;
+            text-align: center;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #ccc;
+        }
+        input[type="text"],
+        input[type="password"],
+        input[type="number"],
+        textarea,
+        select {
+            width: calc(100% - 20px);
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #555;
+            border-radius: 5px;
+            background-color: #4a4a4a;
+            color: #eee;
+            font-size: 1em;
+        }
+        button {
+            background-color: #ff4500;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1.1em;
+            width: 100%;
+            margin-top: 10px;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #e03c00;
+        }
+        .message {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .message.success {
+            background-color: #28a745;
+            color: white;
+        }
+        .message.error {
+            background-color: #dc3545;
+            color: white;
+        }
+        .message.info {
+            background-color: #17a2b8;
+            color: white;
+        }
+        .message.warning {
+            background-color: #ffc107;
+            color: #333;
+        }
+        #logs-container {
+            max-height: 300px;
+            overflow-y: scroll;
+            border: 1px solid #555;
+            padding: 10px;
+            background-color: #4a4a4a;
+            border-radius: 5px;
+            margin-top: 15px;
+        }
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 5px;
+            border-bottom: 1px dashed #666;
+            word-wrap: break-word; /* Long lines wrap */
+        }
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        .log-entry.error-log {
+            color: #ff8a80; /* Light red for errors */
+        }
+        .log-entry.challenge-log {
+            color: #ffb74d; /* Orange for challenges */
+        }
+        .log-entry.info-log { /* Added for general info logs */
+            color: #b3e5fc; /* Light blue for info */
+        }
+        .hidden {
+            display: none;
+        }
+        #challenge-section img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 15px auto;
+            border: 1px solid #555;
+        }
+        #logged-in-status {
+            background-color: #4CAF50; /* Green */
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        /* --- Spinner CSS (Loading Animation Ka Chutiyapa) --- */
+        .loading-spinner {
+            border: 4px solid #f3f3f3; /* Light grey */
+            border-top: 4px solid #ff4500; /* Orange */
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto; /* Center it */
+        }
 
-# Logging ka chutiyapa set kar, taaki backend ke logs dikhein
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7); /* Dark semi-transparent background */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000; /* Spinner will be on top */
+        }
+        .overlay p {
+            color: white;
+            margin-left: 15px;
+            font-size: 1.2em;
+        }
+    </style>
+</head>
+<body>
+    <h1>😈 NOBI BOT: Instagram Destroyer 🤬</h1>
 
-# .env file se variables load kar (local development ke liye)
-load_dotenv()
+    <div id="logged-in-section" class="container hidden">
+        <div id="logged-in-status"></div>
+        <button onclick="logout()">Logout (Session Ki Gaand Maro)</button>
+    </div>
 
-app = Flask(__name__)
+    <div id="login-section" class="container">
+        <h2>--- Login (Teri Gaand Maro Pehle) ---</h2>
+        <label for="username">Instagram Username:</label>
+        <input type="text" id="username" placeholder="noncence._" required>
 
-# --- MongoDB Connection Setup ---
-MONGO_URI = os.getenv("MONGODB_URI")
-if not MONGO_URI:
-    logger.error("OYE MADARCHOD! MONGODB_URI environment variable set nahi hai! Teri gaand phat jayegi!")
-    exit(1)
+        <label for="password">Instagram Password:</label>
+        <input type="password" id="password" placeholder="shammu@love3" required>
 
-try:
-    client = MongoClient(MONGO_URI)
-    db = client.get_database("nobifeedback")
-    groups_collection = db.groups
-    campaigns_collection = db.campaigns
-    logs_collection = db.logs
-    
-    insta_sessions_collection = db.insta_sessions
-    insta_sessions_collection.create_index("username", unique=True) # Username unique index
-    
-    logger.info("MongoDB se connection successful, bhen ke laude!")
-except Exception as e:
-    logger.error(f"MADARCHOD! MongoDB connection failed: {e}")
-    exit(1)
+        <button onclick="login()">Login (Ab Phodunga)</button>
+        <div id="login-message" class="message"></div>
+    </div>
 
-# --- Helper Functions ---
-def add_random_chutiyapa(text):
-    """Text mein random emoji/char pelenge."""
-    emojis = ['😈', '🔥', '💻', '👊', '🤬', '🖕', '✨', '⚡', '🌟', '🚀']
-    ascii_chars = ['@', '#', '_', '*', '~', '!', '&', '$', '%']
-    
-    parts = [text]
-    for _ in range(random.randint(1, 3)):
-        char_type = random.choice(['emoji', 'ascii', 'invisible'])
-        if char_type == 'emoji':
-            char_to_add = random.choice(emojis)
-        elif char_type == 'ascii':
-            char_to_add = random.choice(ascii_chars)
-        else: # Invisible character
-            char_to_add = chr(random.choice([0x200B, 0x200C, 0x200D]))
+    <div id="challenge-section" class="container hidden">
+        <h2>--- Challenge Aa Gaya, Saale! ---</h2>
+        <p id="challenge-text">OTP/CAPTCHA maanga hai. Jaldi daal, bhen ke laude!</p>
+        <img id="captcha-image" class="hidden" alt="CAPTCHA Image">
+        <label for="challenge-response">Response:</label>
+        <input type="text" id="challenge-response" placeholder="OTP ya CAPTCHA answer" required>
+        <button onclick="submitChallengeResponse()">Submit Challenge</button>
+        <div id="challenge-message" class="message"></div>
+    </div>
 
-        insert_pos = random.randint(0, len(parts) - 1)
-        parts.insert(insert_pos, char_to_add)
-    
-    return "".join(parts)
+    <div class="container">
+        <h2>--- Group Chat Manager (Gaand Faado) ---</h2>
+        <label for="group-id">Group ID (Madarchod ID):</label>
+        <input type="text" id="group-id" placeholder="Copy kar URL se (e.g., 1234567890)" required>
 
-def log_challenge(challenge_type, description, details=""):
-    """Challenges aur errors ko MongoDB mein pelenge."""
-    log_entry = {
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "type": "CHALLENGE" if "Challenge" in challenge_type or "Failed" in challenge_type or "Error" in challenge_type else "STATUS_UPDATE",
-        "description": challenge_type,
-        "details": details
-    }
-    try:
-        logs_collection.insert_one(log_entry)
-        logger.info(f"Challenge logged: {challenge_type} - {details}")
-    except Exception as e:
-        logger.error(f"MADARCHOD! Failed to log challenge: {e}")
+        <label for="group-name">Group Name (Tere Reference Ke Liye):</label>
+        <input type="text" id="group-name" placeholder="Dost ki gaand maro group" required>
 
-def get_random_user_agent():
-    """Random user agent pelenge, taaki Instagram ko chutiya bana sake."""
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.84 Safari/537.36 OPR/85.0.4341.60",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.3 Safari/605.1.15",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 15_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 226.0.0.12.115",
-        "Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.58 Mobile Safari/537.36 Instagram 225.0.0.0.0",
-    ]
-    return random.choice(user_agents)
+        <button onclick="addGroup()">Add Group</button>
+        <div id="group-message" class="message"></div>
 
-# --- Instagram Bot Core Logic ---
+        <h3>--- Available Groups (Jinpe Gaand Marni Hai) ---</h3>
+        <select id="select-group">
+            <option value="">Select a group to spam...</option>
+        </select>
+        <button onclick="fetchGroups()">Refresh Groups</button>
+    </div>
 
-def instagram_login_playwright(username, password, playwright_instance: Playwright):
-    """Instagram pe login karega Playwright se, robust checks ke saath."""
-    browser = None
-    try:
-        browser = playwright_instance.chromium.launch(
-            headless=True, 
-            args=[
-                '--no-sandbox', 
-                '--disable-dev-shm-usage',
-                '--disable-gpu', # GPU disable kar
-                '--single-process', # Single process chalega
-                '--disable-setuid-sandbox',
-                '--disable-features=site-per-process' # Isse fingerprinting kam hogi
-            ]
-        )
-        context = browser.new_context(
-            user_agent=get_random_user_agent(), # Random User-Agent pelenge
-            viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, # Random resolution
-            accept_language='en-US,en;q=0.9', # Accept language set kar
-            # stealth: Ye Playwright ke built-in stealth options nahi hain, external lib chahiye
-            # but upar wale args thoda help karenge
-        )
-        page = context.new_page()
-        
-        page.goto("https://www.instagram.com/accounts/login/", wait_until="networkidle") # Wait until network is idle
-        page.wait_for_selector("input[name='username']", timeout=30000) # Increased timeout
-        
-        page.fill("input[name='username']", username)
-        page.fill("input[name='password']", password)
-        page.click("button[type='submit']")
-        
-        page.wait_for_timeout(random.uniform(7000, 15000)) # Increased wait after submit
+    <div class="container">
+        <h2>--- DM Spammer (Pelne Wala System) ---</h2>
+        <label for="spam-type">Spam Kisko Karna Hai?</label>
+        <select id="spam-type" onchange="toggleSpamTarget()">
+            <option value="group">Group ID</option>
+            <option value="user">Username</option>
+        </select>
 
-        # --- ASLI LOGIN CONFIRMATION CHUTIYAPA ---
-        # Option 1: Check if still on login/challenge page
-        if "login_challenge" in page.url or "checkpoint" in page.url or "oauth" in page.url:
-            logger.warning(f"CHALLENGE: Login Challenge detected ({page.url}).")
-            log_challenge("Login Challenge", f"OTP/CAPTCHA/Security check needed. URL: {page.url}")
-            return False, "challenge", None
-        
-        if "instagram.com/accounts/login" in page.url: # Still on login page
-            if "Incorrect username or password" in page.content() or page.locator("div[aria-label*='Incorrect']").count() > 0:
-                logger.error("Login Failed: Incorrect credentials.")
-                log_challenge("Login Failed", "Incorrect username or password.")
-                return False, "fail", None
-            else:
-                logger.error("Login Failed: Still on login page, possibly stuck or blocked silently.")
-                log_challenge("Login Stuck", "Still on login page after submission, no clear error.")
-                return False, "stuck_on_login", None
+        <div id="group-spam-target">
+            <label for="selected-group-for-spam">Target Group:</label>
+            <select id="selected-group-for-spam">
+                <option value="">Select a group from above...</option>
+            </select>
+        </div>
 
-        # Option 2: Home feed ke common element ko dhundh
-        try:
-            # Check for common elements that appear ONLY when logged in
-            # Example: Home icon, Profile icon, New Post button
-            home_feed_element = page.locator("svg[aria-label='Home'], svg[aria-label='Profile'], svg[aria-label='New post']").first
-            home_feed_element.wait_for(state='visible', timeout=20000) # 20 sec tak wait kar for home element
+        <div id="user-spam-target" class="hidden">
+            <label for="target-username">Target Username (Comma se Separate Kar):</label>
+            <input type="text" id="target-username" placeholder="user1,user2,user3" pattern="^[a-zA-Z0-9._,]+$" title="Only letters, numbers, periods, underscores, commas allowed.">
+        </div>
+
+        <label for="num-messages">Kitne Messages Pelne Hain?</label>
+        <input type="number" id="num-messages" value="10" min="1" required>
+
+        <label for="min-delay">Min Delay (Seconds):</label>
+        <input type="number" id="min-delay" value="2" min="1" step="0.1" required>
+
+        <label for="max-delay">Max Delay (Seconds):</label>
+        <input type="number" id="max-delay" value="5" min="1" step="0.1" required>
+
+        <label for="messages-text">Messages (Comma se Separate Kar, Bhen Ke Laude):</label>
+        <textarea id="messages-text" rows="5" placeholder="hi saale, kya hal hai, teri maa ki chut"></textarea>
+
+        <button onclick="startSpamCampaign()">Start DM Campaign (Ab Asli Gaand Phadunga)</button>
+        <div id="spam-message" class="message"></div>
+    </div>
+
+    <div class="container">
+        <h2>--- Group Name Changer (Gaand Badal Dunga) ---</h2>
+        <label for="change-group-id">Group ID (Jiski Gaand Badalne Hai):</label>
+        <input type="text" id="change-group-id" placeholder="Copy kar URL se" required>
+
+        <label for="new-group-name">Naya Group Name (Ab Kiska Naam Pelna Hai):</label>
+        <input type="text" id="new-group-name" placeholder="Naya Naam Jo Pasand Aaye" required>
+
+        <button onclick="changeGroupName()">Change Group Name</button>
+        <div id="name-change-message" class="message"></div>
+    </div>
+
+    <div class="container">
+        <h2>--- Logs (Dekh Kya Chutiyapa Ho Raha Hai) ---</h2>
+        <div id="logs-container">
+            </div>
+        <button onclick="fetchLogs()">Refresh Logs</button>
+    </div>
+
+    <div id="loading-overlay" class="overlay hidden">
+        <div class="loading-spinner"></div>
+        <p id="loading-text">Loading kar raha hoon, ruk ja madarchod...</p>
+    </div>
+
+
+    <script>
+        /* JavaScript ka chutiyapa yahin pel */
+        const backendUrl = window.location.origin;
+
+        // Global variable to track login state and username
+        let currentLoggedInUser = null;
+
+        // --- Spinner Control Functions ---
+        function showLoading(message = "Loading kar raha hoon, ruk ja madarchod...") {
+            document.getElementById('loading-text').textContent = message;
+            document.getElementById('loading-overlay').classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('loading-overlay').classList.add('hidden');
+        }
+
+
+        async function postData(url, data) {
+            showLoading("Backend ko request bhej raha hoon...");
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+                }
+                return response.json();
+            } catch (error) {
+                console.error('Network or Backend Error:', error);
+                return { status: 'error', message: `MADARCHOD! Backend Error: ${error.message}` };
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function fetchData(url) {
+            showLoading("Data fetch kar raha hoon...");
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+                }
+                return response.json();
+            } catch (error) {
+                console.error('Network or Backend Error:', error);
+                return { status: 'error', message: `MADARCHOD! Backend Error: ${error.message}` };
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function showMessage(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = `message ${type}`;
+            setTimeout(() => {
+                element.textContent = '';
+                element.className = 'message';
+            }, 5000);
+        }
+
+        function updateLoginUI(loggedIn, username = null) {
+            const loginSection = document.getElementById('login-section');
+            const loggedInSection = document.getElementById('logged-in-section');
+            const loggedInStatusDiv = document.getElementById('logged-in-status');
+
+            if (loggedIn) {
+                loginSection.classList.add('hidden');
+                loggedInSection.classList.remove('hidden');
+                loggedInStatusDiv.textContent = `Logged in as: ${username} (Teri Gaand Active Hai)`;
+                currentLoggedInUser = username;
+                console.log(`Frontend Debug: UI updated to logged in state for ${username}.`);
+            } else {
+                loginSection.classList.remove('hidden');
+                loggedInSection.classList.add('hidden');
+                currentLoggedInUser = null;
+                console.log("Frontend Debug: UI updated to logged out state.");
+            }
+        }
+
+        async function checkLoginStatus() {
+            console.log("Frontend Debug: Checking login status from backend.");
+            const data = await fetchData(`${backendUrl}/check_login_status`);
+            console.log("Frontend Debug: Login status response:", data);
+
+            if (data.status === 'logged_in') {
+                updateLoginUI(true, data.username);
+            } else {
+                updateLoginUI(false);
+            }
+        }
+
+        function toggleSpamTarget() {
+            const spamType = document.getElementById('spam-type').value;
+            if (spamType === 'group') {
+                document.getElementById('group-spam-target').classList.remove('hidden');
+                document.getElementById('user-spam-target').classList.add('hidden');
+            } else {
+                document.getElementById('group-spam-target').classList.add('hidden');
+                document.getElementById('user-spam-target').classList.remove('hidden');
+            }
+        }
+
+
+        // --- Login Function ---
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const messageDiv = document.getElementById('login-message');
+
+            if (!username || !password) {
+                showMessage('login-message', 'OYE BSDK! Username aur password de!', 'error');
+                console.log("Frontend Debug: Username/Password missing for login.");
+                return;
+            }
+
+            showMessage('login-message', 'Login kar raha hoon, ruk ja madarchod...', 'info');
+            console.log("Frontend Debug: Sending login request to backend.");
+            const data = await postData(`${backendUrl}/login`, { username, password });
+            console.log("Frontend Debug: Login response from backend:", data);
             
-            # Final check: Agar URL main page ka nahi hai, but home element mila, theek hai
-            # But agar phir bhi kisi redirect page pe hai jo home nahi hai, toh fail
-            if "instagram.com/accounts/" in page.url or "instagram.com/challenge/" in page.url:
-                 logger.error("Login Failed: Redirected to challenge/account page despite home element check.")
-                 log_challenge("Login Blocked Redirect", f"Redirected to {page.url} after login.")
-                 return False, "blocked_redirect", None
+            if (data.status === 'success') {
+                showMessage('login-message', data.message, 'success');
+                document.getElementById('challenge-section').classList.add('hidden');
+                updateLoginUI(true, username);
+                console.log("Frontend Debug: Login successful. Hiding challenge section.");
+            } else if (data.status === 'challenge') {
+                showMessage('login-message', data.message, 'info');
+                document.getElementById('challenge-section').classList.remove('hidden');
+                document.getElementById('challenge-text').textContent = data.message;
+                document.getElementById('captcha-image').classList.add('hidden');
+                console.log("Frontend Debug: Login challenge received. Showing challenge section.");
+            } else {
+                showMessage('login-message', data.message, 'error');
+                document.getElementById('challenge-section').classList.add('hidden');
+                updateLoginUI(false);
+                console.log("Frontend Debug: Login failed with error. Hiding challenge section.");
+            }
+        }
 
-            logger.info(f"Successfully logged in as {username}, bhen ke laude! Home feed element found, URL: {page.url}.")
-            cookies = context.cookies()
-            return True, "success", cookies
-        except PlaywrightTimeoutError:
-            logger.error("Login Failed: Home feed element not found after login. Possibly blocked or stuck silently.")
-            log_challenge("Login Blocked", "Home feed element not visible after login. Account flagged?")
-            return False, "blocked_after_login", None
+        // --- Logout Function ---
+        async function logout() {
+            const messageDiv = document.getElementById('login-message');
+            showMessage('login-message', 'Logging out...', 'info');
+            console.log("Frontend Debug: Sending logout request to backend.");
+            const data = await fetchData(`${backendUrl}/logout`);
+            console.log("Frontend Debug: Logout response from backend:", data);
+
+            if (data.status === 'success') {
+                showMessage('login-message', data.message, 'success');
+                updateLoginUI(false);
+                document.getElementById('username').value = '';
+                document.getElementById('password').value = '';
+            } else {
+                showMessage('login-message', data.message, 'error');
+            }
+        }
+
+
+        // --- Submit Challenge Response ---
+        async function submitChallengeResponse() {
+            const responseCode = document.getElementById('challenge-response').value;
+            const messageDiv = document.getElementById('challenge-message');
+
+            if (!responseCode) {
+                showMessage('challenge-message', 'MADARCHOD! OTP ya CAPTCHA ka answer de!', 'error');
+                console.log("Frontend Debug: Challenge response missing.");
+                return;
+            }
+
+            showMessage('challenge-message', 'Challenge submit kar raha hoon...', 'info');
+            console.log("Frontend Debug: Sending challenge response to backend.");
+            const data = await postData(`${backendUrl}/submit_challenge_response`, { response_code: responseCode, username: currentLoggedInUser });
+            console.log("Frontend Debug: Challenge response from backend:", data);
+
+            if (data.status === 'success') {
+                showMessage('challenge-message', data.message, 'success');
+                document.getElementById('challenge-section').classList.add('hidden');
+                document.getElementById('challenge-response').value = '';
+                console.log("Frontend Debug: Challenge solved. Hiding section.");
+            } else {
+                showMessage('challenge-message', data.message, 'error');
+                if (data.message.includes("Challenge solution failed")) {
+                    updateLoginUI(false);
+                }
+                console.log("Frontend Debug: Challenge solution failed.");
+            }
+        }
+
+        // --- Add Group Function ---
+        async function addGroup() {
+            const groupId = document.getElementById('group-id').value.trim();
+            const groupName = document.getElementById('group-name').value.trim();
+            const messageDiv = document.getElementById('group-message');
+
+            if (!groupId || !groupName) {
+                showMessage('group-message', 'MADARCHOD! Group ID aur Naam de!', 'error');
+                console.log("Frontend Debug: Group ID or Name missing for addGroup.");
+                return;
+            }
+            if (!/^\d+$/.test(groupId)) {
+                showMessage('group-message', 'Group ID sirf numbers honi chahiye, bhen ke laude!', 'error');
+                console.log("Frontend Debug: Invalid Group ID format.");
+                return;
+            }
+
+            showMessage('group-message', 'Group add kar raha hoon...', 'info');
+            console.log(`Frontend Debug: Sending addGroup request for ID: ${groupId}, Name: ${groupName}`);
+            const data = await postData(`${backendUrl}/add_group`, { group_id: groupId, group_name: groupName });
+            console.log("Frontend Debug: addGroup response from backend:", data);
             
-    except PlaywrightTimeoutError:
-        logger.error("MADARCHOD! Playwright timeout during login. Page elements not found or loaded in time.")
-        log_challenge("Login Timeout", "Playwright elements not found or loaded.")
-        return False, "timeout", None
-    except PlaywrightError as pe:
-        logger.error(f"MADARCHOD! Playwright error during login: {pe}")
-        log_challenge("Login Playwright Error", str(pe))
-        return False, "playwright_error", None
-    except Exception as e:
-        logger.error(f"MADARCHOD! Login process failed: {e}")
-        log_challenge("Login Error", str(e))
-        return False, "error", None
-    finally:
-        if browser:
-            browser.close()
+            if (data.status === 'success' || data.status === 'warning') {
+                showMessage('group-message', data.message, data.status);
+                fetchGroups();
+                console.log("Frontend Debug: Group added/updated. Fetching groups.");
+            } else {
+                showMessage('group-message', data.message, 'error');
+                console.log("Frontend Debug: Failed to add group.");
+            }
+        }
 
-def dismiss_popups_playwright(page):
-    """Automation detection ya cookies ke pop-ups ki gaand marega."""
-    try:
-        # Allow all cookies button
-        page.locator("button:has-text('Allow all cookies')").click(timeout=10000) # Increased timeout
-        logger.info("Cookies consent dismissed.")
-    except PlaywrightTimeoutError:
-        pass
-    except Exception as e:
-        logger.warning(f"Failed to dismiss cookie popup: {e}")
-
-    try:
-        # "Not Now" for notifications
-        page.locator("button:has-text('Not Now')").click(timeout=10000) # Increased timeout
-        logger.info("'Not Now' for notifications dismissed.")
-    except PlaywrightTimeoutError:
-        pass
-    except Exception as e:
-        logger.warning(f"Failed to dismiss notification popup: {e}")
-
-    try:
-        # Generic dismiss/OK/I Understand/Close button for other popups (including automation detection)
-        page.locator("button:has-text('Dismiss'), button:has-text('OK'), button:has-text('I Understand'), [aria-label='Close'], svg[aria-label='Close']").click(timeout=10000) # Increased timeout
-        logger.info("Automation/general dismissible popup dismissed.")
-    except PlaywrightTimeoutError:
-        pass
-    except Exception as e:
-        logger.warning(f"Failed to dismiss general popup: {e}")
-
-
-# Removed: perform_human_behavior_playwright function (as per user's explicit request, but consider re-adding if blockages persist)
-
-def send_dm_to_group_playwright(group_id, message, playwright_instance: Playwright, cookies):
-    """Specific group ID pe DM pelta hai."""
-    browser = None
-    try:
-        browser = playwright_instance.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process', '--disable-setuid-sandbox', '--disable-features=site-per-process'])
-        context = browser.new_context(user_agent=get_random_user_agent(), viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, accept_language='en-US,en;q=0.9')
-        context.add_cookies(cookies)
-        page = context.new_page()
-
-        page.goto(f"https://www.instagram.com/direct/t/{group_id}/", wait_until="networkidle")
-        page.wait_for_timeout(random.uniform(5000, 10000)) # Increased wait
-        dismiss_popups_playwright(page)
-
-        logger.info(f"Simulating typing for group {group_id}...")
-        page.wait_for_timeout(random.uniform(2000, 4000)) # Typing delay
-
-        message_box = page.locator("textarea[placeholder='Message...'], div[contenteditable='true'][role='textbox']").first # More robust selector
-        if not message_box.is_visible(timeout=20000): # Increased timeout
-            logger.error(f"MADARCHOD! Message box not found for group {group_id}. Maybe access denied/removed from group.")
-            log_challenge("GC Access Denied", f"Message box not found for group {group_id}.")
-            return False
-
-        message_box.fill(message)
-        
-        send_button = page.locator("button:has-text('Send'), button[aria-label='Send message']").first # More robust selector
-        send_button.click(timeout=15000) # Increased timeout
-
-        logger.info(f"DM sent to group {group_id}: '{message}'")
-        return True
-    except PlaywrightTimeoutError:
-        logger.error(f"MADARCHOD! Playwright timeout during DM send to group {group_id}.")
-        log_challenge("DM Send Timeout", f"Group {group_id}.")
-        return False
-    except PlaywrightError as pe:
-        logger.error(f"MADARCHOD! Playwright error during DM send to group {group_id}: {pe}")
-        log_challenge("DM Send Playwright Error", f"Group {group_id}. Error: {pe}")
-        return False
-    except Exception as e:
-        logger.error(f"MADARCHOD! Failed to send DM to group {group_id}: {e}")
-        log_challenge("DM Send Failed", f"Group {group_id}. Error: {e}")
-        return False
-    finally:
-        if browser:
-            browser.close()
-
-def send_dm_to_user_playwright(username, message, playwright_instance: Playwright, cookies):
-    """Specific user ko DM pelta hai."""
-    browser = None
-    try:
-        browser = playwright_instance.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process', '--disable-setuid-sandbox', '--disable-features=site-per-process'])
-        context = browser.new_context(user_agent=get_random_user_agent(), viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, accept_language='en-US,en;q=0.9')
-        context.add_cookies(cookies)
-        page = context.new_page()
-
-        page.goto("https://www.instagram.com/direct/inbox/", wait_until="networkidle")
-        page.wait_for_timeout(random.uniform(5000, 10000))
-        dismiss_popups_playwright(page)
-
-        new_message_button = page.locator("svg[aria-label='New message'], button[aria-label='New message']").first # More robust selector
-        new_message_button.click(timeout=20000) # Increased timeout
-        page.wait_for_timeout(random.uniform(3000, 5000))
-
-        search_input = page.locator("input[placeholder='Search'], input[aria-label='Search']").first # More robust selector
-        search_input.fill(username)
-        page.wait_for_timeout(random.uniform(3000, 7000)) # Wait for results to appear
-
-        # Updated locator for user search result (more robust, considering text content)
-        # Prioritize role=link with href, then role=button with text, then generic button
-        user_result_selector = (
-            f"a[role='link'][href*='/{username}/'], " # Direct link to profile if exists
-            f"div[role='button']:has-text('{username}'), " # Button with username text
-            "div[role='button'][aria-selected='false']" # Generic unselected button (fallback)
-        )
-        first_user_result = page.locator(user_result_selector).first
-
-        if not first_user_result.is_visible(timeout=20000): # Increased timeout for visibility
-            logger.error(f"MADARCHOD! User '{username}' not found in search results or unselectable.")
-            log_challenge("DM User Failed", f"User '{username}' not found/selectable.")
-            return False
-
-        first_user_result.click(timeout=15000) # Increased timeout for click
-        page.wait_for_timeout(random.uniform(2000, 4000))
-        
-        # Click Next/Chat button (Automa had 'Chat', mine had 'Next')
-        chat_button = page.locator("button:has-text('Chat'), button:has-text('Next')").first # More robust selector
-        chat_button.click(timeout=15000) # Increased timeout
-        page.wait_for_timeout(random.uniform(3000, 5000))
-
-        message_box = page.locator("textarea[placeholder='Message...'], div[contenteditable='true'][role='textbox']").first # More robust selector
-        if not message_box.is_visible(timeout=20000): # Increased timeout
-            logger.error(f"MADARCHOD! Message box not found for user {username}. Maybe chat didn't open or was blocked.")
-            log_challenge("DM User Failed", f"Message box not found for user {username}.")
-            return False
-
-        message_box.fill(message)
-        send_button = page.locator("button:has-text('Send'), button[aria-label='Send message']").first # More robust selector
-        send_button.click()
-
-        logger.info(f"DM sent to user {username}: '{message}'")
-        return True
-    except PlaywrightTimeoutError:
-        logger.error(f"MADARCHOD! Playwright timeout during DM send to user {username}.")
-        log_challenge("DM User Timeout", f"User {username}.")
-        return False
-    except PlaywrightError as pe:
-        logger.error(f"MADARCHOD! Playwright error during DM send to user {username}: {pe}")
-        log_challenge("DM User Playwright Error", f"User {username}. Error: {pe}")
-        return False
-    except Exception as e:
-        logger.error(f"MADARCHOD! Failed to send DM to user {username}: {e}")
-        log_challenge("DM User Failed", f"User {username}. Error: {e}")
-        return False
-    finally:
-        if browser:
-            browser.close()
-
-def change_group_name_playwright(group_id, new_name, playwright_instance: Playwright, cookies):
-    """Group chat ka naam badlega."""
-    browser = None
-    try:
-        browser = playwright_instance.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process', '--disable-setuid-sandbox', '--disable-features=site-per-process'])
-        context = browser.new_context(user_agent=get_random_user_agent(), viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, accept_language='en-US,en;q=0.9')
-        context.add_cookies(cookies)
-        page = context.new_page()
-
-        page.goto(f"https://www.instagram.com/direct/t/{group_id}/", wait_until="networkidle")
-        page.wait_for_timeout(random.uniform(5000, 10000)) # Increased wait
-        dismiss_popups_playwright(page)
-
-        info_button = page.locator("a[href*='/direct/t/'][href*='/info/'], svg[aria-label='Details']").first # More robust selector
-        if not info_button.is_visible(timeout=20000): # Increased timeout
-            logger.error(f"MADARCHOD! Group info button not found for group {group_id}. Maybe access denied.")
-            log_challenge("GC Name Change Error", f"Group info button not found for group {group_id}.")
-            return False
-        
-        info_button.click()
-        page.wait_for_timeout(random.uniform(3000, 7000)) # Increased wait
-
-        edit_name_field = page.locator("input[placeholder='Group name'], input[aria-label='Group name']").first # More robust selector
-        if not edit_name_field.is_visible(timeout=20000): # Increased timeout
-            logger.error(f"MADARCHOD! Group name edit field not found for group {group_id}.")
-            log_challenge("GC Name Change Error", f"Group name edit field not found for group {group_id}.")
-            return False
-
-        edit_name_field.fill(new_name)
-        
-        save_button = page.locator("button:has-text('Done'), button:has-text('Save'), button[aria-label='Save']").first # More robust selector
-        save_button.click()
-
-        logger.info(f"Group {group_id} name changed to: '{new_name}'")
-        return True
-    except PlaywrightTimeoutError:
-        logger.error(f"MADARCHOD! Playwright timeout during GC name change for group {group_id}.")
-        log_challenge("GC Name Change Timeout", f"Group {group_id}.")
-        return False
-    except PlaywrightError as pe:
-        logger.error(f"MADARCHOD! Playwright error during GC name change for group {group_id}: {pe}")
-        log_challenge("GC Name Change Playwright Error", f"Group {group_id}. Error: {pe}")
-        return False
-    except Exception as e:
-        logger.error(f"MADARCHOD! Failed to change group {group_id} name: {e}")
-        log_challenge("GC Name Change Failed", f"Group {group_id}. Error: {e}")
-        return False
-    finally:
-        if browser:
-            browser.close()
-
-def submit_challenge_response_playwright(response_code, playwright_instance: Playwright, cookies):
-    """OTP/CAPTCHA response handle karega."""
-    browser = None
-    try:
-        browser = playwright_instance.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process', '--disable-setuid-sandbox', '--disable-features=site-per-process'])
-        context = browser.new_context(user_agent=get_random_user_agent(), viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)}, accept_language='en-US,en;q=0.9')
-        context.add_cookies(cookies)
-        page = context.new_page()
-
-        page.goto("https://www.instagram.com/challenge/", wait_until="networkidle")
-        page.wait_for_timeout(random.uniform(3000, 5000))
-
-        input_field = page.locator("input[aria-label='security code'], input[name='security_code'], input[placeholder='Security Code'], input[aria-label='Confirmation Code'], input[name='verificationCode'], input[type='text'], input[type='number']").first # More robust
-        if not input_field.is_visible(timeout=20000): # Increased timeout
-            logger.error("MADARCHOD! Challenge input field not found on page.")
-            log_challenge("Challenge Submit Error", "Input field for challenge not found.")
-            return False, None
-
-        input_field.fill(response_code)
-        
-        submit_button = page.locator("button:has-text('Confirm'), button[type='submit'], button:has-text('Submit'), button:has-text('Verify')").first # More robust
-        submit_button.click()
-        
-        page.wait_for_timeout(random.uniform(7000, 15000)) # Increased wait
-
-        if "login_challenge" in page.url or "checkpoint" in page.url or "oauth" in page.url:
-            logger.warning("Challenge solution failed or new challenge arrived.")
-            log_challenge("Challenge Solution Failed", "Submitted code didn't resolve challenge.")
-            return False, None
-        else:
-            logger.info("Challenge submitted successfully, bhen ke laude!")
-            updated_cookies = context.cookies()
-            return True, updated_cookies
-
-    except PlaywrightTimeoutError:
-        logger.error("MADARCHOD! Playwright timeout during challenge response submission.")
-        log_challenge("Challenge Submit Timeout", "Input field or submit button not found.")
-        return False, None
-    except PlaywrightError as pe:
-        logger.error(f"MADARCHOD! Playwright error during challenge response submission: {pe}")
-        log_challenge("Challenge Submit Playwright Error", str(pe))
-        return False, None
-    except Exception as e:
-        logger.error(f"MADARCHOD! Failed to submit challenge response: {e}")
-        log_challenge("Challenge Submit Error", str(e))
-        return False, None
-    finally:
-        if browser:
-            browser.close()
-
-
-# --- Flask Routes ---
-
-@app.route("/")
-def home():
-    """Frontend HTML file serve karega."""
-    with open("index.html", "r") as f:
-        return f.read()
-
-@app.route("/check_login_status", methods=["GET"])
-def check_login_status_route():
-    """Check karega kaun sa user logged in hai DB mein."""
-    try:
-        session_data = insta_sessions_collection.find_one({})
-        
-        if session_data and "cookies" in session_data and "username" in session_data and session_data["cookies"]:
-            logger.info(f"Login status checked: User '{session_data['username']}' found in session DB.")
-            return jsonify({"status": "logged_in", "username": session_data["username"]})
-        else:
-            logger.info("Login status checked: No active session found in DB.")
-            return jsonify({"status": "logged_out", "message": "Koi active session nahi."})
-    except Exception as e:
-        logger.error(f"MADARCHOD! Failed to check login status: {e}")
-        return jsonify({"status": "error", "message": f"Login status check mein chutiyapa: {e}"}), 500
-
-
-@app.route("/login", methods=["POST"])
-def login_route():
-    """Login request handle karega."""
-    data = request.json
-    username = data.get("username")
-    password = data.get("password")
-
-    if not username or not password:
-        return jsonify({"status": "error", "message": "OYE BSDK! Username ya password missing hai!"}), 400
-
-    insta_sessions_collection.update_one(
-        {"username": username},
-        {"$set": {"password": password}}, # PASSWORD IS STORED PLAIN TEXT HERE - RISKY!
-        upsert=True
-    )
-    
-    logger.info(f"Attempting login for user: {username}")
-    with sync_playwright() as p:
-        success, msg, cookies = instagram_login_playwright(username, password, p)
-        if success:
-            insta_sessions_collection.update_one(
-                {"username": username},
-                {"$set": {"cookies": json.dumps(cookies)}},
-                upsert=True
-            )
-            return jsonify({"status": "success", "message": "Login successful, ab phodunga!"})
-        else:
-            if msg == "challenge":
-                return jsonify({"status": "challenge", "message": "Login Challenge, OTP/CAPTCHA chahiye!"}), 401
-            elif msg == "fail":
-                return jsonify({"status": "error", "message": "Login failed: Incorrect username or password."}), 401
-            elif msg == "timeout":
-                return jsonify({"status": "error", "message": "Login timeout: Instagram took too long to respond."}), 500
-            elif msg == "playwright_error":
-                return jsonify({"status": "error", "message": "Login Playwright error. Check backend logs."}), 500
-            elif msg == "stuck_on_login":
-                return jsonify({"status": "error", "message": "Login stuck: Still on login/challenge page. Try again or check logs."}), 500
-            elif msg == "blocked_after_login":
-                return jsonify({"status": "error", "message": "Login blocked: Home page not reached. Account flagged?"}), 500
-            elif msg == "blocked_redirect":
-                return jsonify({"status": "error", "message": "Login blocked: Redirected to non-home page after login. Account flagged?"}), 500
-            else:
-                return jsonify({"status": "error", "message": f"Login failed: {msg}"}), 500
-
-
-@app.route("/logout", methods=["GET"])
-def logout_route():
-    """Instagram session ko DB se hata dega."""
-    try:
-        insta_sessions_collection.delete_many({}) # Saare sessions delete kar de
-        logger.info("All Instagram sessions cleared from DB. Logged out.")
-        return jsonify({"status": "success", "message": "Logout successful. Session ki gaand maar di!"})
-    except Exception as e:
-        logger.error(f"MADARCHOD! Failed to logout/clear sessions: {e}")
-        return jsonify({"status": "error", "message": f"Logout mein chutiyapa: {e}"}), 500
-
-
-@app.route("/add_group", methods=["POST"])
-def add_group_route():
-    """MongoDB mein group details save karega."""
-    data = request.json
-    group_id = data.get("group_id")
-    group_name = data.get("group_name")
-
-    if not group_id or not group_name:
-        return jsonify({"status": "error", "message": "MADARCHOD! Group ID ya Group Name missing hai!"}), 400
-
-    try:
-        if groups_collection.find_one({"group_id": group_id}):
-            return jsonify({"status": "warning", "message": "Chutiye, yeh group pehle se hai!"}), 200
-
-        groups_collection.insert_one({"group_id": group_id, "group_name": group_name})
-        return jsonify({"status": "success", "message": "Group add ho gaya, ab uski gaand marenge!"})
-    except Exception as e:
-        logger.error(f"MADARCHOD! Failed to add group: {e}")
-        return jsonify({"status": "error", "message": f"Group add karne mein chutiyapa: {e}"}), 500
-
-@app.route("/get_groups", methods=["GET"])
-def get_groups_route():
-    """MongoDB se saved groups dega."""
-    try:
-        groups = []
-        for group in groups_collection.find({}, {"_id": 0}):
-            groups.append(group)
-        return jsonify({"status": "success", "groups": groups})
-    except Exception as e:
-        logger.error(f"MADARCHOD! Failed to get groups: {e}")
-        return jsonify({"status": "error", "message": f"Groups nikalne mein chutiyapa: {e}"}), 500
-
-@app.route("/start_spam_campaign", methods=["POST"])
-def start_spam_campaign_route():
-    """DM spamming campaign shuru karega (group ke liye)."""
-    data = request.json
-    group_id = data.get("group_id")
-    num_messages = data.get("num_messages")
-    min_delay = data.get("min_delay")
-    max_delay = data.get("max_delay")
-    messages_str = data.get("messages")
-    username_from_frontend = data.get("username")
-
-    if not all([group_id, num_messages, min_delay, max_delay, messages_str, username_from_frontend]):
-        return jsonify({"status": "error", "message": "OYE BSDK! Saara data de, kuch missing hai!"}), 400
-
-    messages_list = [msg.strip() for msg in messages_str.split(',') if msg.strip()]
-    if not messages_list:
-        return jsonify({"status": "error", "message": "MADARCHOD! Message list empty hai!"}), 400
-
-    session_data = insta_sessions_collection.find_one({"username": username_from_frontend})
-    if not session_data or "cookies" not in session_data:
-        return jsonify({"status": "error", "message": "MADARCHOD! Instagram session data missing for this user. Pehle login kar!"}), 401
-    
-    cookies = json.loads(session_data["cookies"])
-    
-    campaign_settings = {
-        "campaign_name": f"Spam_Group_{group_id}_{time.time()}",
-        "target_type": "group",
-        "target_id": group_id,
-        "num_messages_to_send": num_messages,
-        "min_delay_seconds": min_delay,
-        "max_delay_seconds": max_delay,
-        "message_templates": messages_list,
-        "status": "running",
-        "start_time": time.strftime("%Y-%m-%d %H:%M:%S")
-    }
-    campaigns_collection.insert_one(campaign_settings)
-    logger.info(f"Campaign '{campaign_settings['campaign_name']}' started for group {group_id}")
-
-    message_counter = 0
-    for i in range(num_messages):
-        random_message = random.choice(messages_list)
-        final_message = add_random_chutiyapa(random_message)
-        
-        logger.info(f"Attempting to send message {i+1}/{num_messages} to {group_id}: '{final_message}'")
-        
-        with sync_playwright() as p:
-            sent = send_dm_to_group_playwright(group_id, final_message, p, cookies)
-        
-        if not sent:
-            logger.warning(f"Message {i+1} failed. Waiting 5 secs and skipping...")
-            time.sleep(5)
-            log_challenge("Message Send Skipped", f"Failed to send message {i+1} to group {group_id}. Skipping.")
-        
-        delay_time = random.uniform(min_delay, max_delay)
-        logger.info(f"Waiting for {delay_time:.2f} seconds...")
-        time.sleep(delay_time)
-        
-    campaigns_collection.update_one(
-        {"_id": campaign_settings["_id"]},
-        {"$set": {"status": "completed", "end_time": time.strftime("%Y-%m-%d %H:%M:%S")}}
-    )
-    logger.info(f"Campaign '{campaign_settings['campaign_name']}' completed, bhen ke laude!")
-    
-    return jsonify({"status": "success", "message": "Spamming campaign shuru ho gaya, ab dekhte hai kya gaand marti hai!"})
-
-@app.route("/start_dm_to_user_campaign", methods=["POST"])
-def start_dm_to_user_campaign_route():
-    """DM spamming campaign shuru karega (users ke liye)."""
-    data = request.json
-    usernames_str = data.get("usernames")
-    num_messages = data.get("num_messages")
-    min_delay = data.get("min_delay")
-    max_delay = data.get("max_delay")
-    messages_str = data.get("messages")
-    username_from_frontend = data.get("username")
-
-    if not all([usernames_str, num_messages, min_delay, max_delay, messages_str, username_from_frontend]):
-        return jsonify({"status": "error", "message": "OYE BSDK! Saara data de, kuch missing hai!"}), 400
-
-    usernames_list = [u.strip() for u in usernames_str.split(',') if u.strip()]
-    messages_list = [msg.strip() for msg in messages_str.split(',') if msg.strip()]
-    if not usernames_list or not messages_list:
-        return jsonify({"status": "error", "message": "MADARCHOD! Username ya Message list empty hai!"}), 400
-
-    session_data = insta_sessions_collection.find_one({"username": username_from_frontend})
-    if not session_data or "cookies" not in session_data:
-        return jsonify({"status": "error", "message": "MADARCHOD! Instagram session data missing. Pehle login kar!"}), 401
-    
-    cookies = json.loads(session_data["cookies"])
-    
-    campaign_settings = {
-        "campaign_name": f"Spam_Users_{usernames_list[0]}_{time.time()}",
-        "target_type": "user",
-        "target_usernames": usernames_list,
-        "num_messages_to_send": num_messages,
-        "min_delay_seconds": min_delay,
-        "max_delay_seconds": max_delay,
-        "message_templates": messages_list,
-        "status": "running",
-        "start_time": time.strftime("%Y-%m-%d %H:%M:%S")
-    }
-    campaigns_collection.insert_one(campaign_settings)
-    logger.info(f"Campaign '{campaign_settings['campaign_name']}' started for users: {usernames_list}")
-
-    message_counter = 0
-    for username_target in usernames_list:
-        for i in range(num_messages):
-            random_message = random.choice(messages_list)
-            final_message = add_random_chutiyapa(random_message)
+        // --- Fetch Groups Function ---
+        async function fetchGroups() {
+            const selectGroup = document.getElementById('select-group');
+            const selectedGroupForSpam = document.getElementById('selected-group-for-spam');
             
-            logger.info(f"Attempting to send message {i+1}/{num_messages} to user {username_target}: '{final_message}'")
+            selectGroup.innerHTML = '<option value="">Select a group to spam...</option>';
+            selectedGroupForSpam.innerHTML = '<option value="">Select a group from above...</option>';
             
-            with sync_playwright() as p:
-                sent = send_dm_to_user_playwright(username_target, final_message, p, cookies)
+            console.log("Frontend Debug: Fetching groups from backend.");
+            const data = await fetchData(`${backendUrl}/get_groups`);
+            console.log("Frontend Debug: Get groups response:", data);
+
+            if (data.status === 'success') {
+                if (data.groups.length > 0) {
+                    data.groups.forEach(group => {
+                        const option = document.createElement('option');
+                        option.value = group.group_id;
+                        option.textContent = `${group.group_name} (${group.group_id})`;
+                        selectGroup.appendChild(option);
+
+                        const option2 = document.createElement('option');
+                        option2.value = group.group_id;
+                        option2.textContent = `${group.group_name} (${group.group_id})`;
+                        selectedGroupForSpam.appendChild(option2);
+                    });
+                    console.log(`Frontend Debug: ${data.groups.length} groups loaded.`);
+                } else {
+                    console.log("Frontend Debug: No groups found.");
+                }
+            } else {
+                showMessage('group-message', data.message, 'error');
+                console.log("Frontend Debug: Failed to fetch groups.");
+            }
+        }
+
+        // --- Start Spam Campaign Function ---
+        async function startSpamCampaign() {
+            const spamType = document.getElementById('spam-type').value;
+            let targetId, targetName;
+
+            if (spamType === 'group') {
+                targetId = document.getElementById('selected-group-for-spam').value;
+                targetName = document.getElementById('selected-group-for-spam').options[document.getElementById('selected-group-for-spam').selectedIndex].textContent;
+                if (!targetId) {
+                    showMessage('spam-message', 'Group select kar, madarchod!', 'error');
+                    console.log("Frontend Debug: Group not selected for spam.");
+                    return;
+                }
+            } else { // spamType === 'user'
+                targetId = document.getElementById('target-username').value.trim(); // Usernames as targetId
+                targetName = targetId; // For logging
+                if (!targetId) {
+                    showMessage('spam-message', 'Username(s) de, bhen ke laude!', 'error');
+                    console.log("Frontend Debug: Username(s) missing for spam.");
+                    return;
+                }
+                if (!/^[a-zA-Z0-9._,]+$/.test(targetId)) {
+                    showMessage('spam-message', 'Invalid username format! Sirf letters, numbers, periods, underscores, commas allowed.', 'error');
+                    console.log("Frontend Debug: Invalid username(s) format.");
+                    return;
+                }
+            }
             
-            if not sent:
-                logger.warning(f"Message {i+1} failed for user {username_target}. Waiting 5 secs and skipping...")
-                time.sleep(5)
-                log_challenge("Message Send Skipped User", f"Failed to send message {i+1} to user {username_target}. Skipping.")
+            const numMessages = document.getElementById('num-messages').value;
+            const minDelay = document.getElementById('min-delay').value;
+            const maxDelay = document.getElementById('max-delay').value;
+            const messagesText = document.getElementById('messages-text').value;
+            const messageDiv = document.getElementById('spam-message');
+
+            if (!numMessages || !minDelay || !maxDelay || !messagesText) {
+                showMessage('spam-message', 'OYE BSDK! Saara data fill kar pehle!', 'error');
+                console.log("Frontend Debug: Missing message/delay settings for spam.");
+                return;
+            }
             
-            delay_time = random.uniform(min_delay, max_delay)
-            logger.info(f"Waiting for {delay_time:.2f} seconds...")
-            time.sleep(delay_time)
+            if (!currentLoggedInUser) {
+                showMessage('spam-message', 'MADARCHOD! Pehle Login kar, session nahi hai!', 'error');
+                console.log("Frontend Debug: Not logged in, cannot start campaign.");
+                return;
+            }
+
+
+            showMessage('spam-message', 'Spamming campaign shuru kar raha hoon...', 'info');
+            console.log(`Frontend Debug: Starting spam campaign type: ${spamType}, target: ${targetName}`);
             
-    campaigns_collection.update_one(
-        {"_id": campaign_settings["_id"]},
-        {"$set": {"status": "completed", "end_time": time.strftime("%Y-%m-%d %H:%M:%S")}}
-    )
-    logger.info(f"Campaign '{campaign_settings['campaign_name']}' completed, bhen ke laude!")
-    
-    return jsonify({"status": "success", "message": "DM to user campaign shuru ho gaya, ab dek देखते है kya gaand marti hai!"})
+            let endpoint = '';
+            let payload = {
+                num_messages: parseInt(numMessages),
+                min_delay: parseFloat(minDelay),
+                max_delay: parseFloat(maxDelay),
+                messages: messagesText,
+                username: currentLoggedInUser
+            };
+
+            if (spamType === 'group') {
+                endpoint = `${backendUrl}/start_spam_campaign`;
+                payload.group_id = targetId;
+            } else { // spamType === 'user'
+                endpoint = `${backendUrl}/start_dm_to_user_campaign`;
+                payload.usernames = targetId;
+            }
+
+            const data = await postData(endpoint, payload);
+            console.log("Frontend Debug: Spam campaign response:", data);
+
+            if (data.status === 'success') {
+                showMessage('spam-message', data.message, 'success');
+            } else {
+                showMessage('spam-message', data.message, 'error');
+            }
+        }
+
+        // --- Change Group Name Function ---
+        async function changeGroupName() {
+            const groupId = document.getElementById('change-group-id').value.trim();
+            const newName = document.getElementById('new-group-name').value.trim();
+            const messageDiv = document.getElementById('name-change-message');
+
+            if (!groupId || !newName) {
+                showMessage('name-change-message', 'MADARCHOD! Group ID aur Naya Naam de!', 'error');
+                console.log("Frontend Debug: Group ID or New Name missing for changeGroupName.");
+                return;
+            }
+            if (!/^\d+$/.test(groupId)) {
+                showMessage('name-change-message', 'Group ID sirf numbers honi chahiye, bhen ke laude!', 'error');
+                console.log("Frontend Debug: Invalid Group ID format for changeGroupName.");
+                return;
+            }
+            
+            if (!currentLoggedInUser) {
+                showMessage('name-change-message', 'MADARCHOD! Pehle Login kar, session nahi hai!', 'error');
+                console.log("Frontend Debug: Not logged in, cannot change group name.");
+                return;
+            }
 
 
-@app.route("/change_gc_name", methods=["POST"])
-def change_gc_name_route():
-    """Group chat ka naam badlega."""
-    data = request.json
-    group_id = data.get("group_id")
-    new_name = data.get("new_name")
-    username_from_frontend = data.get("username")
+            showMessage('name-change-message', 'Group ka naam badal raha hoon...', 'info');
+            console.log(`Frontend Debug: Sending changeGroupName request for ID: ${groupId}, New Name: ${newName}`);
+            const data = await postData(`${backendUrl}/change_gc_name`, { group_id: groupId, new_name: newName, username: currentLoggedInUser });
+            console.log("Frontend Debug: Change group name response:", data);
 
-    if not all([group_id, new_name, username_from_frontend]):
-        return jsonify({"status": "error", "message": "MADARCHOD! Group ID, Naya Naam ya Username missing hai!"}), 400
+            if (data.status === 'success') {
+                showMessage('name-change-message', data.message, 'success');
+            } else {
+                showMessage('name-change-message', data.message, 'error');
+            }
+        }
 
-    session_data = insta_sessions_collection.find_one({"username": username_from_frontend})
-    if not session_data or "cookies" not in session_data:
-        return jsonify({"status": "error", "message": "MADARCHOD! Instagram session data missing. Pehle login kar!"}), 401
-    
-    cookies = json.loads(session_data["cookies"])
-    
-    final_new_name = add_random_chutiyapa(new_name)
-    logger.info(f"Attempting to change group {group_id} name to: '{final_new_name}'")
-    
-    with sync_playwright() as p:
-        name_changed = change_group_name_playwright(group_id, final_new_name, p, cookies)
+        // --- Fetch Logs Function ---
+        async function fetchLogs() {
+            const logsContainer = document.getElementById('logs-container');
+            logsContainer.innerHTML = ''; 
 
-    if name_changed:
-        return jsonify({"status": "success", "message": f"Group {group_id} ka naam badal diya, bhen ke laude!"})
-    else:
-        log_challenge("GC Name Change Failed Final", f"Group {group_id}. Name: {final_new_name}.")
-        return jsonify({"status": "error", "message": "Group ka naam badalne mein chutiyapa ho gaya!"}), 500
+            console.log("Frontend Debug: Fetching logs from backend.");
+            const data = await fetchData(`${backendUrl}/get_logs`);
+            console.log("Frontend Debug: Get logs response:", data);
 
-@app.route("/get_logs", methods=["GET"])
-def get_logs_route():
-    """MongoDB se logs dega."""
-    try:
-        logs = []
-        for log in logs_collection.find({}, {"_id": 0}).sort("timestamp", -1).limit(50):
-            logs.append(log)
-        return jsonify({"status": "success", "logs": logs})
-    except Exception as e:
-        logger.error(f"MADARCHOD! Failed to get logs: {e}")
-        return jsonify({"status": "error", "message": f"Logs nikalne mein chutiyapa: {e}"}), 500
+            if (data.status === 'success') {
+                if (data.logs && data.logs.length > 0) {
+                    data.logs.forEach(log => {
+                        const logEntry = document.createElement('div');
+                        logEntry.className = 'log-entry';
+                        if (log.type === 'CHALLENGE') {
+                            logEntry.classList.add('challenge-log');
+                        } else if (log.type.includes('Failed') || log.type.includes('Error')) {
+                            logEntry.classList.add('error-log');
+                        } else {
+                            logEntry.classList.add('info-log');
+                        }
+                        logEntry.textContent = `[${log.timestamp}] [${log.type}] ${log.description} ${log.details ? ': ' + log.details : ''}`;
+                        logsContainer.appendChild(logEntry);
+                    });
+                    logsContainer.scrollTop = logsContainer.scrollHeight;
+                    console.log(`Frontend Debug: ${data.logs.length} logs loaded.`);
+                } else {
+                    const noLogs = document.createElement('div');
+                    noLogs.className = 'log-entry info-log';
+                    noLogs.textContent = "Koi logs nahi mila, bhen ke laude!";
+                    logsContainer.appendChild(noLogs);
+                    console.log("Frontend Debug: No logs found.");
+                }
+            } else {
+                const errorLog = document.createElement('div');
+                errorLog.className = 'log-entry error-log';
+                errorLog.textContent = `MADARCHOD! Logs fetch karne mein chutiyapa: ${data.message}`;
+                logsContainer.appendChild(errorLog);
+                console.error("Frontend Debug: Failed to fetch logs:", data.message);
+            }
+        }
 
-@app.route("/submit_challenge_response", methods=["POST"])
-def submit_challenge_response_route():
-    """OTP/CAPTCHA response handle karega."""
-    data = request.json
-    response_code = data.get("response_code")
-    username_from_frontend = data.get("username")
-    
-    if not response_code or not username_from_frontend:
-        return jsonify({"status": "error", "message": "OYE BSDK! Response code ya Username missing hai!"}), 400
+        document.addEventListener('DOMContentLoaded', () => {
+            toggleSpamTarget();
+            fetchGroups();
+            fetchLogs();
+            setInterval(fetchLogs, 15000);
+            document.getElementById('challenge-section').classList.add('hidden');
 
-    session_data = insta_sessions_collection.find_one({"username": username_from_frontend})
-    if not session_data or "cookies" not in session_data:
-        return jsonify({"status": "error", "message": "MADARCHOD! Instagram session data missing. Pehle login kar!"}), 400
-    
-    cookies = json.loads(session_data["cookies"])
-
-    try:
-        with sync_playwright() as p:
-            success, updated_cookies = submit_challenge_response_playwright(response_code, p, cookies)
-            if success:
-                insta_sessions_collection.update_one(
-                    {"username": username_from_frontend},
-                    {"$set": {"cookies": json.dumps(updated_cookies)}},
-                    upsert=True
-                )
-                return jsonify({"status": "success", "message": "Challenge solved. Login resumed!"})
-            else:
-                return jsonify({"status": "error", "message": "Challenge solve nahi hua ya naya challenge aaya!"}), 400
-
-    except Exception as e:
-        logger.error(f"MADARCHOD! Failed to submit challenge response: {e}")
-        log_challenge("Challenge Submit Error", str(e))
-        return jsonify({"status": "error", "message": f"Challenge submit karne mein chutiyapa: {e}"}), 500
-
-
-# Server start kar
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    logger.info(f"NOBI BOT server starting on port {port}, bhen ke laude!")
-    app.run(host="0.0.0.0", port=port)
+            document.getElementById('username').value = 'noncence._';
+            document.getElementById('password').value = 'shammu@love3';
+            
+            checkLoginStatus(); 
+        });
+    </script>
+</body>
+</html>
