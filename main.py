@@ -3,11 +3,11 @@ import os
 import time
 import random
 import logging
-import json # Cookies ko JSON mein handle karne ke liye
+import json
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
 from dotenv import load_dotenv
-from playwright.sync_api import sync_playwright, Playwright
+from playwright.sync_api import sync_playwright, Playwright, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
 
 # Logging ka chutiyapa set kar, taaki backend ke logs dikhein
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -22,29 +22,24 @@ app = Flask(__name__)
 MONGO_URI = os.getenv("MONGODB_URI")
 if not MONGO_URI:
     logger.error("OYE MADARCHOD! MONGODB_URI environment variable set nahi hai! Teri gaand phat jayegi!")
-    exit(1) # Agar URI nahi mila toh seedha exit kar
+    exit(1)
 
 try:
     client = MongoClient(MONGO_URI)
-    db = client.get_database("nobifeedback") # Tera database name
+    db = client.get_database("nobifeedback")
     groups_collection = db.groups
     campaigns_collection = db.campaigns
-    logs_collection = db.logs # Challenges aur errors ke liye
+    logs_collection = db.logs
     
-    # Instagram Session collection (cookies save karne ke liye)
     insta_sessions_collection = db.insta_sessions
-    insta_sessions_collection.create_index("username", unique=True) # Username unique index banayenge
+    insta_sessions_collection.create_index("username", unique=True)
     
     logger.info("MongoDB se connection successful, bhen ke laude!")
 except Exception as e:
     logger.error(f"MADARCHOD! MongoDB connection failed: {e}")
     exit(1)
 
-# --- Instagram Bot Global Variables ---
-# Inko ab database se uthayenge ya login ke time set karenge
-# INSTA_USERNAME aur INSTA_PASSWORD ab sirf Render env vars se aayenge
-# instagram_session_cookies ab database se load/save hongi
-# Ye variables sirf reference ke liye hain, direct use nahi honge har jagah
+# --- Instagram Bot Global Variables (Session Management Database se) ---
 INSTA_USERNAME_GLOBAL = os.getenv("INSTA_USERNAME") 
 INSTA_PASSWORD_GLOBAL = os.getenv("INSTA_PASSWORD")
 
@@ -55,7 +50,6 @@ def add_random_chutiyapa(text):
     ascii_chars = ['@', '#', '_', '*', '~', '!', '&', '$', '%']
     
     parts = [text]
-    # Randomly 1-3 jagah chutiyapa daalenge
     for _ in range(random.randint(1, 3)):
         char_type = random.choice(['emoji', 'ascii', 'invisible'])
         if char_type == 'emoji':
@@ -63,7 +57,7 @@ def add_random_chutiyapa(text):
         elif char_type == 'ascii':
             char_to_add = random.choice(ascii_chars)
         else: # Invisible character
-            char_to_add = chr(random.choice([0x200B, 0x200C, 0x200D])) # Zero Width Space, Non-Joiner, Joiner
+            char_to_add = chr(random.choice([0x200B, 0x200C, 0x200D]))
 
         insert_pos = random.randint(0, len(parts) - 1)
         parts.insert(insert_pos, char_to_add)
@@ -118,6 +112,14 @@ def instagram_login_playwright(username, password, playwright_instance: Playwrig
         
         return True, "success", cookies
 
+    except PlaywrightTimeoutError:
+        logger.error("MADARCHOD! Playwright timeout during login. Page elements not found or loaded in time.")
+        log_challenge("Login Timeout", "Playwright elements not found or loaded.")
+        return False, "timeout", None
+    except PlaywrightError as pe:
+        logger.error(f"MADARCHOD! Playwright error during login: {pe}")
+        log_challenge("Login Playwright Error", str(pe))
+        return False, "playwright_error", None
     except Exception as e:
         logger.error(f"MADARCHOD! Login process failed: {e}")
         log_challenge("Login Error", str(e))
@@ -131,20 +133,27 @@ def dismiss_popups_playwright(page):
     try:
         page.locator("button:has-text('Allow all cookies')").click(timeout=5000)
         logger.info("Cookies consent dismissed.")
-    except:
-        pass
+    except PlaywrightTimeoutError:
+        pass # No cookie popup
+    except Exception as e:
+        logger.warning(f"Failed to dismiss cookie popup: {e}")
 
     try:
         page.locator("button:has-text('Not Now')").click(timeout=5000)
         logger.info("'Not Now' for notifications dismissed.")
-    except:
-        pass
+    except PlaywrightTimeoutError:
+        pass # No notification popup
+    except Exception as e:
+        logger.warning(f"Failed to dismiss notification popup: {e}")
 
     try:
+        # Generic dismiss/OK/I Understand/Close button for other popups (including automation detection)
         page.locator("button:has-text('Dismiss'), button:has-text('OK'), button:has-text('I Understand'), [aria-label='Close'], svg[aria-label='Close']").click(timeout=5000)
         logger.info("Automation/general dismissible popup dismissed.")
+    except PlaywrightTimeoutError:
+        pass # No general dismiss popup
     except Exception as e:
-        pass
+        logger.warning(f"Failed to dismiss general popup: {e}")
 
 
 def perform_human_behavior_playwright(page, min_delay_seconds):
@@ -171,6 +180,7 @@ def perform_human_behavior_playwright(page, min_delay_seconds):
         page.goto("https://www.instagram.com/explore/people/suggested/")
         page.wait_for_timeout(random.uniform(5000, 10000))
         
+        # Suggested profiles ke links dhundo (example, may need adjustment)
         profile_links = page.locator("a[href*='/p/'][tabindex='0']").all() # Post links
         if profile_links:
             random_profile_link = random.choice(profile_links)
@@ -182,6 +192,8 @@ def perform_human_behavior_playwright(page, min_delay_seconds):
         else:
             logger.info("No suggested profiles found to visit.")
 
+    except PlaywrightTimeoutError:
+        logger.warning("Human behavior timed out. Skipping.")
     except Exception as e:
         logger.warning(f"MADARCHOD! Human behavior failed: {e}")
 
@@ -215,9 +227,88 @@ def send_dm_to_group_playwright(group_id, message, playwright_instance: Playwrig
 
         logger.info(f"DM sent to group {group_id}: '{message}'")
         return True
+    except PlaywrightTimeoutError:
+        logger.error(f"MADARCHOD! Playwright timeout during DM send to group {group_id}.")
+        log_challenge("DM Send Timeout", f"Group {group_id}.")
+        return False
+    except PlaywrightError as pe:
+        logger.error(f"MADARCHOD! Playwright error during DM send to group {group_id}: {pe}")
+        log_challenge("DM Send Playwright Error", f"Group {group_id}. Error: {pe}")
+        return False
     except Exception as e:
         logger.error(f"MADARCHOD! Failed to send DM to group {group_id}: {e}")
         log_challenge("DM Send Failed", f"Group {group_id}. Error: {e}")
+        return False
+    finally:
+        if browser:
+            browser.close()
+
+def send_dm_to_user_playwright(username, message, playwright_instance: Playwright, cookies):
+    """Specific user ko DM pelta hai."""
+    browser = None
+    try:
+        browser = playwright_instance.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
+        context = browser.new_context()
+        context.add_cookies(cookies)
+        page = context.new_page()
+
+        page.goto("https://www.instagram.com/direct/inbox/")
+        page.wait_for_timeout(random.uniform(3000, 6000))
+        dismiss_popups_playwright(page)
+
+        # Click New Message button
+        new_message_button = page.locator("svg[aria-label='New message']")
+        new_message_button.click(timeout=10000)
+        page.wait_for_timeout(random.uniform(2000, 4000))
+
+        # Search for user
+        search_input = page.locator("input[placeholder='Search']")
+        search_input.fill(username)
+        page.wait_for_timeout(random.uniform(2000, 4000)) # Wait for results to appear
+
+        # Select the first result (assuming it's the correct user)
+        # This locator might need adjustment if Instagram UI changes
+        first_user_result = page.locator(f"div[role='button'] >> text='{username}'").first
+        if not first_user_result.is_visible():
+             # Fallback: select generic user result if exact username text isn't found
+             first_user_result = page.locator("div[role='button'][aria-selected='false']").first
+             if not first_user_result.is_visible():
+                logger.error(f"MADARCHOD! User '{username}' not found in search results or unselectable.")
+                log_challenge("DM User Failed", f"User '{username}' not found/selectable.")
+                return False
+
+        first_user_result.click()
+        page.wait_for_timeout(random.uniform(1000, 2000))
+
+        # Click 'Chat' or 'Next' button to open chat
+        chat_button = page.locator("button:has-text('Chat'), button:has-text('Next')")
+        chat_button.click(timeout=10000)
+        page.wait_for_timeout(random.uniform(2000, 4000))
+
+        # Message box and send
+        message_box = page.locator("textarea[placeholder='Message...']")
+        if not message_box.is_visible():
+            logger.error(f"MADARCHOD! Message box not found for user {username}. Maybe chat didn't open.")
+            log_challenge("DM User Failed", f"Message box not found for user {username}.")
+            return False
+
+        message_box.fill(message)
+        send_button = page.locator("button:has-text('Send')")
+        send_button.click()
+
+        logger.info(f"DM sent to user {username}: '{message}'")
+        return True
+    except PlaywrightTimeoutError:
+        logger.error(f"MADARCHOD! Playwright timeout during DM send to user {username}.")
+        log_challenge("DM User Timeout", f"User {username}.")
+        return False
+    except PlaywrightError as pe:
+        logger.error(f"MADARCHOD! Playwright error during DM send to user {username}: {pe}")
+        log_challenge("DM User Playwright Error", f"User {username}. Error: {pe}")
+        return False
+    except Exception as e:
+        logger.error(f"MADARCHOD! Failed to send DM to user {username}: {e}")
+        log_challenge("DM User Failed", f"User {username}. Error: {e}")
         return False
     finally:
         if browser:
@@ -258,6 +349,14 @@ def change_group_name_playwright(group_id, new_name, playwright_instance: Playwr
 
         logger.info(f"Group {group_id} name changed to: '{new_name}'")
         return True
+    except PlaywrightTimeoutError:
+        logger.error(f"MADARCHOD! Playwright timeout during GC name change for group {group_id}.")
+        log_challenge("GC Name Change Timeout", f"Group {group_id}.")
+        return False
+    except PlaywrightError as pe:
+        logger.error(f"MADARCHOD! Playwright error during GC name change for group {group_id}: {pe}")
+        log_challenge("GC Name Change Playwright Error", f"Group {group_id}. Error: {pe}")
+        return False
     except Exception as e:
         logger.error(f"MADARCHOD! Failed to change group {group_id} name: {e}")
         log_challenge("GC Name Change Failed", f"Group {group_id}. Error: {e}")
@@ -275,7 +374,9 @@ def submit_challenge_response_playwright(response_code, playwright_instance: Pla
         context.add_cookies(cookies) # Previous cookies load kar
         page = context.new_page()
 
-        page.goto("https://www.instagram.com/challenge/") # Navigate back to challenge URL if needed
+        # Navigate back to challenge URL if needed or ensure current page is challenge
+        # For a robust solution, you might want to store the challenge URL
+        # For now, assume it's the current page or a redirect to challenge
         page.wait_for_timeout(random.uniform(2000, 4000)) # Small wait
 
         input_field = page.locator("input[aria-label='security code'], input[name='security_code'], input[placeholder='Security Code'], input[aria-label='Confirmation Code'], input[name='verificationCode'], input[type='text']")
@@ -291,6 +392,7 @@ def submit_challenge_response_playwright(response_code, playwright_instance: Pla
         
         page.wait_for_timeout(random.uniform(5000, 10000)) # Wait for result
 
+        # Check if challenge page is still present after submission
         if "login_challenge" in page.url or "checkpoint" in page.url or "oauth" in page.url:
             logger.warning("Challenge solution failed or new challenge arrived.")
             log_challenge("Challenge Solution Failed", "Submitted code didn't resolve challenge.")
@@ -300,6 +402,14 @@ def submit_challenge_response_playwright(response_code, playwright_instance: Pla
             updated_cookies = context.cookies()
             return True, updated_cookies
 
+    except PlaywrightTimeoutError:
+        logger.error("MADARCHOD! Playwright timeout during challenge response submission.")
+        log_challenge("Challenge Submit Timeout", "Input field or submit button not found.")
+        return False, None
+    except PlaywrightError as pe:
+        logger.error(f"MADARCHOD! Playwright error during challenge response submission: {pe}")
+        log_challenge("Challenge Submit Playwright Error", str(pe))
+        return False, None
     except Exception as e:
         logger.error(f"MADARCHOD! Failed to submit challenge response: {e}")
         log_challenge("Challenge Submit Error", str(e))
@@ -327,19 +437,17 @@ def login_route():
     if not username or not password:
         return jsonify({"status": "error", "message": "OYE BSDK! Username ya password missing hai!"}), 400
 
-    # Credentials ko DB mein save kar, taaki session reuse ho sake
-    # Isko encrypt karna best practice hai production mein
+    # Credentials ko DB mein save kar (production mein encrypt karna!)
     insta_sessions_collection.update_one(
         {"username": username},
-        {"$set": {"password": password}}, # Password ko aise plain text mein save karna risky hai!
-        upsert=True # Agar user nahi hai toh insert kar de
+        {"$set": {"password": password}}, # PASSWORD IS STORED PLAIN TEXT HERE - RISKY!
+        upsert=True
     )
     
     logger.info(f"Attempting login for user: {username}")
     with sync_playwright() as p:
         success, msg, cookies = instagram_login_playwright(username, password, p)
         if success:
-            # Cookies ko JSON string mein store kar
             insta_sessions_collection.update_one(
                 {"username": username},
                 {"$set": {"cookies": json.dumps(cookies)}},
@@ -351,8 +459,12 @@ def login_route():
                 return jsonify({"status": "challenge", "message": "Login Challenge, OTP/CAPTCHA chahiye!"}), 401
             elif msg == "fail":
                 return jsonify({"status": "error", "message": "Login failed: Incorrect username or password."}), 401
+            elif msg == "timeout":
+                return jsonify({"status": "error", "message": "Login timeout: Instagram took too long to respond."}), 500
+            elif msg == "playwright_error":
+                return jsonify({"status": "error", "message": "Login Playwright error. Check backend logs."}), 500
             else:
-                return jsonify({"status": "error", "message": f"Login failed: {msg}"}), 401
+                return jsonify({"status": "error", "message": f"Login failed: {msg}"}), 500 # Default to 500 for other errors
 
 @app.route("/add_group", methods=["POST"])
 def add_group_route():
@@ -388,7 +500,7 @@ def get_groups_route():
 
 @app.route("/start_spam_campaign", methods=["POST"])
 def start_spam_campaign_route():
-    """DM spamming campaign shuru karega."""
+    """DM spamming campaign shuru karega (group ke liye)."""
     data = request.json
     group_id = data.get("group_id")
     num_messages = data.get("num_messages")
@@ -403,16 +515,16 @@ def start_spam_campaign_route():
     if not messages_list:
         return jsonify({"status": "error", "message": "MADARCHOD! Message list empty hai!"}), 400
 
-    # Login credentials aur session cookies database se uthayenge
     session_data = insta_sessions_collection.find_one({"username": INSTA_USERNAME_GLOBAL})
     if not session_data or "cookies" not in session_data:
         return jsonify({"status": "error", "message": "MADARCHOD! Instagram session data missing. Pehle login kar!"}), 401
     
-    cookies = json.loads(session_data["cookies"]) # JSON string se cookies load kar
+    cookies = json.loads(session_data["cookies"])
     
     campaign_settings = {
-        "campaign_name": f"Spam_{group_id}_{time.time()}",
-        "target_group_id": group_id,
+        "campaign_name": f"Spam_Group_{group_id}_{time.time()}",
+        "target_type": "group",
+        "target_id": group_id,
         "num_messages_to_send": num_messages,
         "min_delay_seconds": min_delay,
         "max_delay_seconds": max_delay,
@@ -423,6 +535,9 @@ def start_spam_campaign_route():
     campaigns_collection.insert_one(campaign_settings)
     logger.info(f"Campaign '{campaign_settings['campaign_name']}' started for group {group_id}")
 
+    # --- Asli Spamming Logic (Background mein chalega, simple for now) ---
+    # NOTE: For production, use Celery/RQ for long-running tasks!
+    
     message_counter = 0
     for i in range(num_messages):
         random_message = random.choice(messages_list)
@@ -437,12 +552,13 @@ def start_spam_campaign_route():
             message_counter += 1
             if min_delay <= 2 and message_counter % random.randint(20, 25) == 0:
                 with sync_playwright() as p:
+                    # Launch new browser for human behavior to not disturb main task
                     browser_for_human_behavior = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
                     context_for_human_behavior = browser_for_human_behavior.new_context()
                     context_for_human_behavior.add_cookies(cookies)
                     page_for_human_behavior = context_for_human_behavior.new_page()
                     perform_human_behavior_playwright(page_for_human_behavior, min_delay)
-                    browser_for_human_behavior.close() # Close browser after human behavior
+                    browser_for_human_behavior.close()
                 message_counter = 0
         else:
             logger.warning(f"Message {i+1} failed. Waiting 5 secs and skipping...")
@@ -462,6 +578,86 @@ def start_spam_campaign_route():
     
     return jsonify({"status": "success", "message": "Spamming campaign shuru ho gaya, ab dekhte hai kya gaand marti hai!"})
 
+@app.route("/start_dm_to_user_campaign", methods=["POST"])
+def start_dm_to_user_campaign_route():
+    """DM spamming campaign shuru karega (users ke liye)."""
+    data = request.json
+    usernames_str = data.get("usernames") # Comma separated usernames
+    num_messages = data.get("num_messages")
+    min_delay = data.get("min_delay")
+    max_delay = data.get("max_delay")
+    messages_str = data.get("messages") # Comma separated string
+
+    if not all([usernames_str, num_messages, min_delay, max_delay, messages_str]):
+        return jsonify({"status": "error", "message": "OYE BSDK! Saara data de, kuch missing hai!"}), 400
+
+    usernames_list = [u.strip() for u in usernames_str.split(',') if u.strip()]
+    messages_list = [msg.strip() for msg in messages_str.split(',') if msg.strip()]
+    if not usernames_list or not messages_list:
+        return jsonify({"status": "error", "message": "MADARCHOD! Username ya Message list empty hai!"}), 400
+
+    session_data = insta_sessions_collection.find_one({"username": INSTA_USERNAME_GLOBAL})
+    if not session_data or "cookies" not in session_data:
+        return jsonify({"status": "error", "message": "MADARCHOD! Instagram session data missing. Pehle login kar!"}), 401
+    
+    cookies = json.loads(session_data["cookies"])
+    
+    campaign_settings = {
+        "campaign_name": f"Spam_Users_{usernames_list[0]}_{time.time()}",
+        "target_type": "user",
+        "target_usernames": usernames_list, # Store list of usernames
+        "num_messages_to_send": num_messages,
+        "min_delay_seconds": min_delay,
+        "max_delay_seconds": max_delay,
+        "message_templates": messages_list,
+        "status": "running",
+        "start_time": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
+    campaigns_collection.insert_one(campaign_settings)
+    logger.info(f"Campaign '{campaign_settings['campaign_name']}' started for users: {usernames_list}")
+
+    message_counter = 0
+    # Loop through each user to send N messages
+    for username_target in usernames_list:
+        for i in range(num_messages):
+            random_message = random.choice(messages_list)
+            final_message = add_random_chutiyapa(random_message)
+            
+            logger.info(f"Attempting to send message {i+1}/{num_messages} to user {username_target}: '{final_message}'")
+            
+            with sync_playwright() as p:
+                sent = send_dm_to_user_playwright(username_target, final_message, p, cookies)
+            
+            if sent:
+                message_counter += 1
+                if min_delay <= 2 and message_counter % random.randint(20, 25) == 0:
+                    with sync_playwright() as p:
+                        browser_for_human_behavior = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
+                        context_for_human_behavior = browser_for_human_behavior.new_context()
+                        context_for_human_behavior.add_cookies(cookies)
+                        page_for_human_behavior = context_for_human_behavior.new_page()
+                        perform_human_behavior_playwright(page_for_human_behavior, min_delay)
+                        browser_for_human_behavior.close()
+                    message_counter = 0
+            else:
+                logger.warning(f"Message {i+1} failed for user {username_target}. Waiting 5 secs and skipping...")
+                time.sleep(5)
+                log_challenge("Message Send Skipped User", f"Failed to send message {i+1} to user {username_target}. Skipping.")
+                continue
+
+            delay_time = random.uniform(min_delay, max_delay)
+            logger.info(f"Waiting for {delay_time:.2f} seconds...")
+            time.sleep(delay_time)
+            
+    campaigns_collection.update_one(
+        {"_id": campaign_settings["_id"]},
+        {"$set": {"status": "completed", "end_time": time.strftime("%Y-%m-%d %H:%M:%S")}}
+    )
+    logger.info(f"Campaign '{campaign_settings['campaign_name']}' completed, bhen ke laude!")
+    
+    return jsonify({"status": "success", "message": "DM to user campaign shuru ho gaya, ab dekhte hai kya gaand marti hai!"})
+
+
 @app.route("/change_gc_name", methods=["POST"])
 def change_gc_name_route():
     """Group chat ka naam badlega."""
@@ -472,7 +668,6 @@ def change_gc_name_route():
     if not group_id or not new_name:
         return jsonify({"status": "error", "message": "MADARCHOD! Group ID ya Naya Naam missing hai!"}), 400
 
-    # Login credentials aur session cookies database se uthayenge
     session_data = insta_sessions_collection.find_one({"username": INSTA_USERNAME_GLOBAL})
     if not session_data or "cookies" not in session_data:
         return jsonify({"status": "error", "message": "MADARCHOD! Instagram session data missing. Pehle login kar!"}), 401
@@ -512,7 +707,6 @@ def submit_challenge_response_route():
     if not response_code:
         return jsonify({"status": "error", "message": "OYE BSDK! Response code missing hai!"}), 400
 
-    # Login credentials aur session cookies database se uthayenge
     session_data = insta_sessions_collection.find_one({"username": INSTA_USERNAME_GLOBAL})
     if not session_data or "cookies" not in session_data:
         return jsonify({"status": "error", "message": "MADARCHOD! Instagram session data missing. Pehle login kar!"}), 400
@@ -523,7 +717,6 @@ def submit_challenge_response_route():
         with sync_playwright() as p:
             success, updated_cookies = submit_challenge_response_playwright(response_code, p, cookies)
             if success:
-                # Update cookies in DB after challenge is solved
                 insta_sessions_collection.update_one(
                     {"username": INSTA_USERNAME_GLOBAL},
                     {"$set": {"cookies": json.dumps(updated_cookies)}},
