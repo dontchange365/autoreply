@@ -120,6 +120,9 @@
         .log-entry.challenge-log {
             color: #ffb74d; /* Orange for challenges */
         }
+        .log-entry.info-log { /* Added for general info logs */
+            color: #b3e5fc; /* Light blue for info */
+        }
         .hidden {
             display: none;
         }
@@ -160,7 +163,7 @@
     <div class="container">
         <h2>--- Group Chat Manager (Gaand Faado) ---</h2>
         <label for="group-id">Group ID (Madarchod ID):</label>
-        <input type="text" id="group-id" placeholder="Copy kar URL se" required>
+        <input type="text" id="group-id" placeholder="Copy kar URL se (e.g., 1234567890)" required>
 
         <label for="group-name">Group Name (Tere Reference Ke Liye):</label>
         <input type="text" id="group-name" placeholder="Dost ki gaand maro group" required>
@@ -177,6 +180,24 @@
 
     <div class="container">
         <h2>--- DM Spammer (Pelne Wala System) ---</h2>
+        <label for="spam-type">Spam Kisko Karna Hai?</label>
+        <select id="spam-type" onchange="toggleSpamTarget()">
+            <option value="group">Group ID</option>
+            <option value="user">Username</option>
+        </select>
+
+        <div id="group-spam-target">
+            <label for="selected-group-for-spam">Target Group:</label>
+            <select id="selected-group-for-spam">
+                <option value="">Select a group from above...</option>
+            </select>
+        </div>
+
+        <div id="user-spam-target" class="hidden">
+            <label for="target-username">Target Username (Comma se Separate Kar):</label>
+            <input type="text" id="target-username" placeholder="user1,user2,user3" pattern="^[a-zA-Z0-9._,]+$" title="Only letters, numbers, periods, underscores, commas allowed.">
+        </div>
+
         <label for="num-messages">Kitne Messages Pelne Hain?</label>
         <input type="number" id="num-messages" value="10" min="1" required>
 
@@ -217,19 +238,37 @@
         const backendUrl = window.location.origin; // Same origin as the Flask app
 
         async function postData(url, data) {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(data)
-            });
-            return response.json();
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+                }
+                return response.json();
+            } catch (error) {
+                console.error('Network or Backend Error:', error);
+                return { status: 'error', message: `MADARCHOD! Backend Error: ${error.message}` };
+            }
         }
 
         async function fetchData(url) {
-            const response = await fetch(url);
-            return response.json();
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+                }
+                return response.json();
+            } catch (error) {
+                console.error('Network or Backend Error:', error);
+                return { status: 'error', message: `MADARCHOD! Backend Error: ${error.message}` };
+            }
         }
 
         function showMessage(elementId, message, type) {
@@ -242,6 +281,19 @@
             }, 5000); // 5 seconds baad gaayab kar
         }
 
+        // Toggle spam target section
+        function toggleSpamTarget() {
+            const spamType = document.getElementById('spam-type').value;
+            if (spamType === 'group') {
+                document.getElementById('group-spam-target').classList.remove('hidden');
+                document.getElementById('user-spam-target').classList.add('hidden');
+            } else {
+                document.getElementById('group-spam-target').classList.add('hidden');
+                document.getElementById('user-spam-target').classList.remove('hidden');
+            }
+        }
+
+
         // --- Login Function ---
         async function login() {
             const username = document.getElementById('username').value;
@@ -250,24 +302,31 @@
 
             if (!username || !password) {
                 showMessage('login-message', 'OYE BSDK! Username aur password de!', 'error');
+                console.log("Frontend Debug: Username/Password missing for login.");
                 return;
             }
 
             showMessage('login-message', 'Login kar raha hoon, ruk ja madarchod...', 'info');
+            console.log("Frontend Debug: Sending login request to backend.");
             const data = await postData(`${backendUrl}/login`, { username, password });
+            console.log("Frontend Debug: Login response from backend:", data);
             
             if (data.status === 'success') {
                 showMessage('login-message', data.message, 'success');
-                // Login successful, ab challenge section chupa de agar dikh raha tha
                 document.getElementById('challenge-section').classList.add('hidden');
-            } else if (data.status === 'challenge') { // Ab 'challenge' status check kar
-                showMessage('login-message', data.message, 'info'); // Info message show kar
+                console.log("Frontend Debug: Login successful. Hiding challenge section.");
+            } else if (data.status === 'challenge') {
+                showMessage('login-message', data.message, 'info');
                 document.getElementById('challenge-section').classList.remove('hidden');
                 document.getElementById('challenge-text').textContent = data.message;
-                document.getElementById('captcha-image').classList.add('hidden'); // CAPTCHA image abhi bhi hidden
-            } else { // 'error' status (login failed due to wrong creds or other errors)
+                // CAPTCHA image will be displayed if backend sends URL/base64
+                document.getElementById('captcha-image').classList.add('hidden'); // Default hidden
+                // if (data.captcha_image) { ... logic to display image ... }
+                console.log("Frontend Debug: Login challenge received. Showing challenge section.");
+            } else {
                 showMessage('login-message', data.message, 'error');
                 document.getElementById('challenge-section').classList.add('hidden'); // Error pe challenge chupa
+                console.log("Frontend Debug: Login failed with error. Hiding challenge section.");
             }
         }
 
@@ -278,83 +337,157 @@
 
             if (!responseCode) {
                 showMessage('challenge-message', 'MADARCHOD! OTP ya CAPTCHA ka answer de!', 'error');
+                console.log("Frontend Debug: Challenge response missing.");
                 return;
             }
 
             showMessage('challenge-message', 'Challenge submit kar raha hoon...', 'info');
+            console.log("Frontend Debug: Sending challenge response to backend.");
             const data = await postData(`${backendUrl}/submit_challenge_response`, { response_code: responseCode });
+            console.log("Frontend Debug: Challenge response from backend:", data);
 
             if (data.status === 'success') {
                 showMessage('challenge-message', data.message, 'success');
-                document.getElementById('challenge-section').classList.add('hidden'); // Challenge solve ho gaya, chupa de
+                document.getElementById('challenge-section').classList.add('hidden');
+                document.getElementById('challenge-response').value = ''; // Clear field
+                console.log("Frontend Debug: Challenge solved. Hiding section.");
             } else {
                 showMessage('challenge-message', data.message, 'error');
+                console.log("Frontend Debug: Challenge solution failed.");
             }
         }
 
         // --- Add Group Function ---
         async function addGroup() {
-            const groupId = document.getElementById('group-id').value;
-            const groupName = document.getElementById('group-name').value;
+            const groupId = document.getElementById('group-id').value.trim();
+            const groupName = document.getElementById('group-name').value.trim();
             const messageDiv = document.getElementById('group-message');
 
             if (!groupId || !groupName) {
                 showMessage('group-message', 'MADARCHOD! Group ID aur Naam de!', 'error');
+                console.log("Frontend Debug: Group ID or Name missing for addGroup.");
+                return;
+            }
+            if (!/^\d+$/.test(groupId)) {
+                showMessage('group-message', 'Group ID sirf numbers honi chahiye, bhen ke laude!', 'error');
+                console.log("Frontend Debug: Invalid Group ID format.");
                 return;
             }
 
             showMessage('group-message', 'Group add kar raha hoon...', 'info');
+            console.log(`Frontend Debug: Sending addGroup request for ID: ${groupId}, Name: ${groupName}`);
             const data = await postData(`${backendUrl}/add_group`, { group_id: groupId, group_name: groupName });
+            console.log("Frontend Debug: addGroup response from backend:", data);
             
             if (data.status === 'success' || data.status === 'warning') {
                 showMessage('group-message', data.message, data.status);
                 fetchGroups(); // List refresh kar
+                console.log("Frontend Debug: Group added/updated. Fetching groups.");
             } else {
                 showMessage('group-message', data.message, 'error');
+                console.log("Frontend Debug: Failed to add group.");
             }
         }
 
         // --- Fetch Groups Function ---
         async function fetchGroups() {
             const selectGroup = document.getElementById('select-group');
+            const selectedGroupForSpam = document.getElementById('selected-group-for-spam');
+            
             selectGroup.innerHTML = '<option value="">Select a group to spam...</option>'; // Clear existing
+            selectedGroupForSpam.innerHTML = '<option value="">Select a group from above...</option>';
+            
+            console.log("Frontend Debug: Fetching groups from backend.");
             const data = await fetchData(`${backendUrl}/get_groups`);
+            console.log("Frontend Debug: Get groups response:", data);
 
             if (data.status === 'success') {
-                data.groups.forEach(group => {
-                    const option = document.createElement('option');
-                    option.value = group.group_id;
-                    option.textContent = `${group.group_name} (${group.group_id})`;
-                    selectGroup.appendChild(option);
-                });
-                showMessage('group-message', 'Groups fetch ho gaye!', 'info');
+                if (data.groups.length > 0) {
+                    data.groups.forEach(group => {
+                        const option = document.createElement('option');
+                        option.value = group.group_id;
+                        option.textContent = `${group.group_name} (${group.group_id})`;
+                        selectGroup.appendChild(option);
+
+                        const option2 = document.createElement('option');
+                        option2.value = group.group_id;
+                        option2.textContent = `${group.group_name} (${group.group_id})`;
+                        selectedGroupForSpam.appendChild(option2);
+                    });
+                    showMessage('group-message', 'Groups fetch ho gaye!', 'info');
+                    console.log(`Frontend Debug: ${data.groups.length} groups loaded.`);
+                } else {
+                    showMessage('group-message', 'Koi group nahi mila, bhen ke laude!', 'warning');
+                    console.log("Frontend Debug: No groups found.");
+                }
             } else {
                 showMessage('group-message', data.message, 'error');
+                console.log("Frontend Debug: Failed to fetch groups.");
             }
         }
 
         // --- Start Spam Campaign Function ---
         async function startSpamCampaign() {
-            const selectedGroupId = document.getElementById('select-group').value;
+            const spamType = document.getElementById('spam-type').value;
+            let targetId, targetName;
+
+            if (spamType === 'group') {
+                targetId = document.getElementById('selected-group-for-spam').value;
+                targetName = document.getElementById('selected-group-for-spam').options[document.getElementById('selected-group-for-spam').selectedIndex].textContent;
+                if (!targetId) {
+                    showMessage('spam-message', 'Group select kar, madarchod!', 'error');
+                    console.log("Frontend Debug: Group not selected for spam.");
+                    return;
+                }
+            } else { // spamType === 'user'
+                targetId = document.getElementById('target-username').value.trim(); // Usernames as targetId
+                targetName = targetId; // For logging
+                if (!targetId) {
+                    showMessage('spam-message', 'Username(s) de, bhen ke laude!', 'error');
+                    console.log("Frontend Debug: Username(s) missing for spam.");
+                    return;
+                }
+                // Basic validation for usernames (letters, numbers, periods, underscores, commas)
+                if (!/^[a-zA-Z0-9._,]+$/.test(targetId)) {
+                    showMessage('spam-message', 'Invalid username format! Sirf letters, numbers, periods, underscores, commas allowed.', 'error');
+                    console.log("Frontend Debug: Invalid username(s) format.");
+                    return;
+                }
+            }
+            
             const numMessages = document.getElementById('num-messages').value;
             const minDelay = document.getElementById('min-delay').value;
             const maxDelay = document.getElementById('max-delay').value;
             const messagesText = document.getElementById('messages-text').value;
             const messageDiv = document.getElementById('spam-message');
 
-            if (!selectedGroupId || !numMessages || !minDelay || !maxDelay || !messagesText) {
+            if (!numMessages || !minDelay || !maxDelay || !messagesText) {
                 showMessage('spam-message', 'OYE BSDK! Saara data fill kar pehle!', 'error');
+                console.log("Frontend Debug: Missing message/delay settings for spam.");
                 return;
             }
 
             showMessage('spam-message', 'Spamming campaign shuru kar raha hoon...', 'info');
-            const data = await postData(`${backendUrl}/start_spam_campaign`, {
-                group_id: selectedGroupId,
-                num_messages: parseInt(num_messages),
-                min_delay: parseFloat(min_delay),
-                max_delay: parseFloat(max_delay),
+            console.log(`Frontend Debug: Starting spam campaign type: ${spamType}, target: ${targetName}`);
+            
+            let endpoint = '';
+            let payload = {
+                num_messages: parseInt(numMessages),
+                min_delay: parseFloat(minDelay),
+                max_delay: parseFloat(maxDelay),
                 messages: messagesText
-            });
+            };
+
+            if (spamType === 'group') {
+                endpoint = `${backendUrl}/start_spam_campaign`;
+                payload.group_id = targetId;
+            } else { // spamType === 'user'
+                endpoint = `${backendUrl}/start_dm_to_user_campaign`;
+                payload.usernames = targetId; // Send comma-separated usernames
+            }
+
+            const data = await postData(endpoint, payload);
+            console.log("Frontend Debug: Spam campaign response:", data);
 
             if (data.status === 'success') {
                 showMessage('spam-message', data.message, 'success');
@@ -365,17 +498,25 @@
 
         // --- Change Group Name Function ---
         async function changeGroupName() {
-            const groupId = document.getElementById('change-group-id').value;
-            const newName = document.getElementById('new-group-name').value;
+            const groupId = document.getElementById('change-group-id').value.trim();
+            const newName = document.getElementById('new-group-name').value.trim();
             const messageDiv = document.getElementById('name-change-message');
 
             if (!groupId || !newName) {
                 showMessage('name-change-message', 'MADARCHOD! Group ID aur Naya Naam de!', 'error');
+                console.log("Frontend Debug: Group ID or New Name missing for changeGroupName.");
+                return;
+            }
+            if (!/^\d+$/.test(groupId)) {
+                showMessage('name-change-message', 'Group ID sirf numbers honi chahiye, bhen ke laude!', 'error');
+                console.log("Frontend Debug: Invalid Group ID format for changeGroupName.");
                 return;
             }
 
             showMessage('name-change-message', 'Group ka naam badal raha hoon...', 'info');
+            console.log(`Frontend Debug: Sending changeGroupName request for ID: ${groupId}, New Name: ${newName}`);
             const data = await postData(`${backendUrl}/change_gc_name`, { group_id: groupId, new_name: newName });
+            console.log("Frontend Debug: Change group name response:", data);
 
             if (data.status === 'success') {
                 showMessage('name-change-message', data.message, 'success');
@@ -387,39 +528,57 @@
         // --- Fetch Logs Function ---
         async function fetchLogs() {
             const logsContainer = document.getElementById('logs-container');
-            logsContainer.innerHTML = ''; // Clear existing logs
+            // No logsContainer.innerHTML = ''; here, just append new ones
+            // To clear only when explicitly refreshing, uncomment the line below.
+            // logsContainer.innerHTML = ''; 
+
+            console.log("Frontend Debug: Fetching logs from backend.");
             const data = await fetchData(`${backendUrl}/get_logs`);
+            // Clear existing logs in case of full refresh, otherwise append
+            logsContainer.innerHTML = ''; // Clear existing to show fresh 50 logs
 
             if (data.status === 'success') {
-                data.logs.forEach(log => {
-                    const logEntry = document.createElement('div');
-                    logEntry.className = 'log-entry';
-                    if (log.type === 'CHALLENGE') {
-                        logEntry.classList.add('challenge-log');
-                    } else if (log.type.includes('Failed') || log.type.includes('Error')) {
-                        logEntry.classList.add('error-log');
-                    }
-                    logEntry.textContent = `[${log.timestamp}] [${log.type}] ${log.description} ${log.details ? ': ' + log.details : ''}`;
-                    logsContainer.appendChild(logEntry);
-                });
-                logsContainer.scrollTop = logsContainer.scrollHeight; // Scroll to bottom
+                if (data.logs && data.logs.length > 0) {
+                    data.logs.forEach(log => {
+                        const logEntry = document.createElement('div');
+                        logEntry.className = 'log-entry';
+                        if (log.type === 'CHALLENGE') {
+                            logEntry.classList.add('challenge-log');
+                        } else if (log.type.includes('Failed') || log.type.includes('Error')) {
+                            logEntry.classList.add('error-log');
+                        } else {
+                            logEntry.classList.add('info-log'); // Default for general info
+                        }
+                        logEntry.textContent = `[${log.timestamp}] [${log.type}] ${log.description} ${log.details ? ': ' + log.details : ''}`;
+                        logsContainer.appendChild(logEntry);
+                    });
+                    logsContainer.scrollTop = logsContainer.scrollHeight; // Scroll to bottom
+                    console.log(`Frontend Debug: ${data.logs.length} logs loaded.`);
+                } else {
+                    const noLogs = document.createElement('div');
+                    noLogs.className = 'log-entry info-log';
+                    noLogs.textContent = "Koi logs nahi mila, bhen ke laude!";
+                    logsContainer.appendChild(noLogs);
+                    console.log("Frontend Debug: No logs found.");
+                }
             } else {
                 const errorLog = document.createElement('div');
                 errorLog.className = 'log-entry error-log';
                 errorLog.textContent = `MADARCHOD! Logs fetch karne mein chutiyapa: ${data.message}`;
                 logsContainer.appendChild(errorLog);
+                console.error("Frontend Debug: Failed to fetch logs:", data.message);
             }
         }
 
         // Initial fetch for groups and logs when page loads
         document.addEventListener('DOMContentLoaded', () => {
+            toggleSpamTarget(); // Initial setup for spam target
             fetchGroups();
             fetchLogs();
             setInterval(fetchLogs, 15000); // Har 15 second mein logs refresh kar, bhen ke laude
-            // Abhi challenge section hidden rakhenge, jab backend bolega tab dikhaenge
             document.getElementById('challenge-section').classList.add('hidden');
 
-            // Prefill with your username/password for convenience (remove in prod)
+            // Prefill with your username/password for convenience
             document.getElementById('username').value = 'noncence._';
             document.getElementById('password').value = 'shammu@love3';
         });
