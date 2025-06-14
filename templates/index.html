@@ -97,9 +97,9 @@
 
     <div class="container">
         <h2>DM Fetching & Display 👊</h2>
-        <button onclick="fetchAllDMs()">Fetch ALL DMs (MongoDB Save)</button>
-        <button onclick="fetchNewDMs()">Fetch NEW DMs (MongoDB Save)</button>
-        <button onclick="getFetchedDMs()">Display Fetched DMs from DB</button>
+        <button onclick="fetchAllDMs()">Fetch ALL DMs (Local)</button>
+        <button onclick="fetchNewDMs()">Fetch NEW DMs (Local)</button>
+        <button onclick="getFetchedDMs()">Display Fetched DMs (from Live Fetch)</button>
         <div class="dm-list" id="dmList">
             <p>Fetched DMs will appear here...</p>
         </div>
@@ -116,6 +116,7 @@
 
     <script>
         const BACKEND_URL = ""; // Render pe ye blank rahega, same domain se serve hoga
+        let displayedDMs = []; // Local variable to store fetched DMs for display
 
         async function fetchData(endpoint, method = 'GET', body = null) {
             try {
@@ -135,7 +136,7 @@
                     return null; // Return null to indicate failure
                 }
 
-                if (data.status === 'success') {
+                if (data.status === 'success' || data.status === 'info') { // Also handle 'info' status
                     return data;
                 } else {
                     alert('Error: ' + data.message);
@@ -151,6 +152,7 @@
             const dmListDiv = document.getElementById('dmList');
             dmListDiv.innerHTML = ''; // Clear previous
             if (dms && dms.length > 0) {
+                displayedDMs = dms; // Store for local display
                 dms.forEach(dm => {
                     const p = document.createElement('p');
                     p.className = 'dm-item';
@@ -159,6 +161,7 @@
                 });
             } else {
                 dmListDiv.innerHTML = '<p>No DMs fetched yet, chutiye!</p>';
+                displayedDMs = [];
             }
         }
 
@@ -167,8 +170,6 @@
             statusMessageDiv.textContent = "Server pe session generate karne ki koshish. OTP ya challenge aaya toh logs mein dekho ya manually session banao PC se! 🤬";
             statusMessageDiv.style.color = '#ffcc00';
 
-            // Server-side pe Selenium chalana complex hai.
-            // Ye button ab sirf user ko batayega ki session manually generate karna padega.
             const result = await fetchData('web_login', 'POST', {});
             if (result) {
                 statusMessageDiv.textContent = result.message;
@@ -204,18 +205,22 @@
         }
 
         async function fetchNewDMs() {
+            // Since DMs are not persisted, "new" is same as "all" for now
             const result = await fetchData('fetch_new_dms');
             if (result) {
                 alert(result.message);
-                // Optionally refresh all DMs from DB to show new ones
-                getFetchedDMs();
+                displayDMs(result.data); // Display all fetched DMs
             }
         }
 
         async function getFetchedDMs() {
-            const result = await fetchData('get_fetched_dms');
-            if (result) {
-                displayDMs(result.data);
+            // Now fetches from local variable, as DB is not used
+            if (displayedDMs.length > 0) {
+                alert("Displaying DMs from last fetch.");
+                displayDMs(displayedDMs);
+            } else {
+                alert("No DMs fetched yet. Use 'Fetch ALL DMs' button.");
+                document.getElementById('dmList').innerHTML = '<p>No DMs fetched yet, chutiye!</p>';
             }
         }
 
@@ -248,7 +253,7 @@
         // Initial checks when page loads
         document.addEventListener('DOMContentLoaded', () => {
             checkSession();
-            getFetchedDMs();
+            // No automatic getFetchedDMs as they are not persisted
         });
     </script>
 </body>
